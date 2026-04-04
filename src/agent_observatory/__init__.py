@@ -1,6 +1,6 @@
 """Agent Reliability Observatory — behavioral taxonomy and annotation framework for coding agents."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from agent_observatory.annotator import annotate_trial
 from agent_observatory.signals import extract_all, extract_signals
