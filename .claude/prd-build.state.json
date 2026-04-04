@@ -1,0 +1,9 @@
+{
+  "status": "executing",
+  "prd_path": "prd_agent_observatory.md",
+  "max_passes": 3,
+  "max_parallel": 5,
+  "current_pass": 1,
+  "integration_branch": "prd-build/phase1-types-annotator",
+  "started_at": "2026-04-04T12:00:00Z"
+}

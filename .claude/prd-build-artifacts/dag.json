@@ -1,0 +1,111 @@
+[
+  {
+    "id": "unit-types",
+    "name": "TrialSignals TypedDict & data contract types",
+    "description": "Add src/agent_observatory/types.py with: TrialSignals TypedDict (26 signal keys), TrialInput Protocol (what data observatory needs to consume), CategoryAssignment/Annotation/AnnotationDocument frozen dataclasses. These types form the formal contract between signal extraction and downstream pipeline. Tests in tests/test_types.py.",
+    "deps": [],
+    "tier": "medium",
+    "acceptance": [
+      "from agent_observatory.types import TrialSignals succeeds",
+      "from agent_observatory.types import TrialInput succeeds and TrialInput is a Protocol",
+      "from agent_observatory.types import CategoryAssignment, Annotation, AnnotationDocument succeeds and all are frozen dataclasses",
+      "TrialSignals has exactly 26 typed keys covering: task_id, model, config_name, benchmark, reward, passed, total_turns, tool_calls_total, search_tool_calls, edit_tool_calls, code_nav_tool_calls, semantic_search_tool_calls, unique_files_read, unique_files_edited, files_read_list, files_edited_list, error_count, retry_count, trajectory_length, has_result_json, has_trajectory, duration_seconds, rate_limited, exception_crashed, patch_size_lines, tool_call_sequence",
+      "CategoryAssignment has fields: name (str), confidence (float), evidence (str|None)",
+      "Annotation has fields: task_id, trial_path, reward, passed, categories (tuple of CategoryAssignment), plus optional run_id, model, config_name, benchmark, annotator_type, annotator_identity, notes, signals, annotated_at",
+      "pytest tests/test_types.py passes with 0 failures"
+    ],
+    "layer": 0,
+    "scope": ["src/agent_observatory/types.py", "tests/test_types.py"],
+    "status": "pending",
+    "branch": null,
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  },
+  {
+    "id": "unit-tool-registry",
+    "name": "Injectable ToolRegistry with default tool sets",
+    "description": "Add src/agent_observatory/tool_registry.py with: ToolRegistry frozen dataclass holding frozensets for search_tools, edit_tools, code_nav_tools, semantic_search_tools. Ship DEFAULT_REGISTRY with Claude Code + Sourcegraph MCP tool names. External consumers can create custom registries. Tests in tests/test_tool_registry.py.",
+    "deps": [],
+    "tier": "small",
+    "acceptance": [
+      "from agent_observatory.tool_registry import ToolRegistry, DEFAULT_REGISTRY succeeds",
+      "ToolRegistry is a frozen dataclass with fields: search_tools, edit_tools, code_nav_tools, semantic_search_tools (all frozenset[str])",
+      "DEFAULT_REGISTRY.search_tools contains at least 'Grep', 'Glob', 'mcp__sourcegraph__keyword_search'",
+      "DEFAULT_REGISTRY.edit_tools contains at least 'Edit', 'Write'",
+      "DEFAULT_REGISTRY.code_nav_tools contains at least 'Read', 'mcp__sourcegraph__read_file', 'mcp__sourcegraph__go_to_definition'",
+      "DEFAULT_REGISTRY.semantic_search_tools contains at least 'mcp__sourcegraph__nls_search'",
+      "ToolRegistry supports custom creation: ToolRegistry(search_tools=frozenset({'my_grep'}), ...) works",
+      "ToolRegistry has an all_tools property returning the union of all tool sets",
+      "pytest tests/test_tool_registry.py passes with 0 failures"
+    ],
+    "layer": 0,
+    "scope": [
+      "src/agent_observatory/tool_registry.py",
+      "tests/test_tool_registry.py"
+    ],
+    "status": "pending",
+    "branch": null,
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  },
+  {
+    "id": "unit-annotator",
+    "name": "Heuristic annotator consuming TrialSignals + ToolRegistry",
+    "description": "Add src/agent_observatory/annotator.py with annotate_trial(signals: TrialSignals, *, tool_registry: ToolRegistry = DEFAULT_REGISTRY) -> list[CategoryAssignment]. Implements heuristic rules that map signal patterns to taxonomy categories. Each of the 23 taxonomy categories should have a heuristic rule. The annotator must work with a hand-built TrialSignals dict — no filesystem access, no CSB dependency. Tests in tests/test_annotator.py with both default and custom tool registries.",
+    "deps": ["unit-types", "unit-tool-registry"],
+    "tier": "large",
+    "acceptance": [
+      "from agent_observatory.annotator import annotate_trial succeeds",
+      "annotate_trial accepts a TrialSignals dict and returns list[CategoryAssignment]",
+      "annotate_trial accepts an optional tool_registry keyword argument defaulting to DEFAULT_REGISTRY",
+      "Given a TrialSignals with reward=0.0, passed=False, search_tool_calls=0, unique_files_read=0 — returns CategoryAssignment with name='retrieval_failure'",
+      "Given a TrialSignals with reward=1.0, passed=True, code_nav_tool_calls>5 — returns CategoryAssignment with name='success_via_code_nav'",
+      "Given a TrialSignals with rate_limited=True — returns CategoryAssignment with name='rate_limited_run'",
+      "Given a TrialSignals with exception_crashed=True — returns CategoryAssignment with name='exception_crash'",
+      "Works with a custom ToolRegistry that defines different tool names",
+      "All returned CategoryAssignment names are valid taxonomy category names (validated against valid_category_names())",
+      "pytest tests/test_annotator.py passes with 0 failures",
+      "pytest tests/ passes with 0 failures (no regressions)"
+    ],
+    "layer": 1,
+    "scope": ["src/agent_observatory/annotator.py", "tests/test_annotator.py"],
+    "status": "pending",
+    "branch": null,
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  },
+  {
+    "id": "unit-exports-version",
+    "name": "Update package exports and bump to v0.2.0",
+    "description": "Update src/agent_observatory/__init__.py to export new public API: TrialSignals, TrialInput, CategoryAssignment, Annotation, AnnotationDocument from types; ToolRegistry, DEFAULT_REGISTRY from tool_registry; annotate_trial from annotator. Bump version to 0.2.0 in both __init__.py and pyproject.toml. Ensure the full test suite passes.",
+    "deps": ["unit-annotator"],
+    "tier": "small",
+    "acceptance": [
+      "agent_observatory.__version__ == '0.2.0'",
+      "pyproject.toml version == '0.2.0'",
+      "from agent_observatory import TrialSignals, TrialInput, CategoryAssignment, Annotation, AnnotationDocument succeeds",
+      "from agent_observatory import ToolRegistry, DEFAULT_REGISTRY succeeds",
+      "from agent_observatory import annotate_trial succeeds",
+      "pytest tests/ passes with 0 failures",
+      "pip install -e . && python -c 'from agent_observatory import annotate_trial, TrialSignals, ToolRegistry; print(\"OK\")' succeeds"
+    ],
+    "layer": 2,
+    "scope": [
+      "src/agent_observatory/__init__.py",
+      "pyproject.toml",
+      "tests/test_taxonomy.py"
+    ],
+    "status": "pending",
+    "branch": null,
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  }
+]
