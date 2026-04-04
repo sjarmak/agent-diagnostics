@@ -3,6 +3,7 @@
 __version__ = "0.2.0"
 
 from agent_observatory.annotator import annotate_trial
+from agent_observatory.signals import extract_all, extract_signals
 from agent_observatory.taxonomy import (
     load_taxonomy,
     valid_category_names,
@@ -26,6 +27,8 @@ __all__ = [
     "TrialInput",
     "TrialSignals",
     "annotate_trial",
+    "extract_all",
+    "extract_signals",
     "load_taxonomy",
     "valid_category_names",
     "validate_annotation_categories",
