@@ -4,6 +4,6 @@
   "max_passes": 3,
   "max_parallel": 5,
   "current_pass": 1,
-  "integration_branch": "prd-build/phase3-classifier-ensemble",
-  "started_at": "2026-04-04T14:00:00Z"
+  "integration_branch": "prd-build/phase4-llm-cli",
+  "started_at": "2026-04-04T15:00:00Z"
 }
