@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import inspect
 import json
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -537,3 +538,245 @@ class TestTaxonomyCacheReset:
 
         assert _tax._cached_taxonomy is None
         assert _tax._cached_path is None
+
+
+# ---------------------------------------------------------------------------
+# annotate_trial_claude_code backend tests
+# ---------------------------------------------------------------------------
+
+
+def _make_trial_dir(tmp_path: Path) -> Path:
+    """Create a minimal trial directory with instruction.txt and trajectory.json."""
+    agent_dir = tmp_path / "trial" / "agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "instruction.txt").write_text("Fix the bug in foo.py")
+    (agent_dir / "trajectory.json").write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "tool_calls": [
+                            {"function_name": "Read", "arguments": {"path": "foo.py"}}
+                        ]
+                    }
+                ]
+            }
+        )
+    )
+    return tmp_path / "trial"
+
+
+def _load_fixture(name: str) -> str:
+    """Load a fixture file and return its contents as a string."""
+    return (FIXTURES_DIR / name).read_text()
+
+
+class TestAnnotateTrialClaudeCode:
+    """Tests for the annotate_trial_claude_code subprocess backend."""
+
+    def test_success_structured_output(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+        stdout = _load_fixture("claude_envelope_structured_output.json")
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = stdout
+        mock_result.stderr = ""
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                return_value=mock_result,
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 1.0})
+
+        assert len(result) == 2
+        names = {c["name"] for c in result}
+        assert names == {"retrieval_failure", "query_churn"}
+
+    def test_success_raw_fallback(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+        stdout = _load_fixture("claude_envelope_raw_fallback.json")
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = stdout
+        mock_result.stderr = ""
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                return_value=mock_result,
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 0.5})
+
+        assert len(result) == 1
+        assert result[0]["name"] == "stale_context"
+
+    def test_subprocess_failure(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "Something went wrong"
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                return_value=mock_result,
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
+
+        assert result == []
+
+    def test_timeout(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=120),
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
+
+        assert result == []
+
+    def test_bad_json(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "this is not valid json at all"
+        mock_result.stderr = ""
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                return_value=mock_result,
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
+
+        assert result == []
+
+    def test_is_error_response(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+        stdout = _load_fixture("claude_envelope_is_error.json")
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = stdout
+        mock_result.stderr = ""
+
+        with (
+            mock.patch(
+                "agent_diagnostics.llm_annotator.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            mock.patch(
+                "agent_diagnostics.llm_annotator.subprocess.run",
+                return_value=mock_result,
+            ),
+        ):
+            result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# annotate_trial_api backend tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnnotateTrialApi:
+    """Tests for the annotate_trial_api SDK backend."""
+
+    def _mock_message(self, text: str) -> mock.MagicMock:
+        """Create a mock Anthropic message with the given text content."""
+        content_block = mock.MagicMock()
+        content_block.text = text
+        message = mock.MagicMock()
+        message.content = [content_block]
+        return message
+
+    def test_success(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+        response_text = json.dumps(
+            {
+                "categories": [
+                    {
+                        "name": "retrieval_failure",
+                        "confidence": 0.9,
+                        "evidence": "Agent failed to find file",
+                    }
+                ]
+            }
+        )
+
+        mock_client = mock.MagicMock()
+        mock_client.messages.create.return_value = self._mock_message(response_text)
+
+        mock_anthropic = mock.MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+
+        with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = annotate_trial_api(trial_dir, {"reward": 1.0})
+
+        assert len(result) == 1
+        assert result[0]["name"] == "retrieval_failure"
+        assert result[0]["confidence"] == 0.9
+
+    def test_api_error(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+
+        mock_client = mock.MagicMock()
+        mock_client.messages.create.side_effect = RuntimeError("API rate limit")
+
+        mock_anthropic = mock.MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+
+        with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = annotate_trial_api(trial_dir, {"reward": 0.0})
+
+        assert result == []
+
+    def test_non_list_response(self, tmp_path: Path) -> None:
+        trial_dir = _make_trial_dir(tmp_path)
+        # Return a number instead of a dict/list
+        response_text = "42"
+
+        mock_client = mock.MagicMock()
+        mock_client.messages.create.return_value = self._mock_message(response_text)
+
+        mock_anthropic = mock.MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+
+        with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            result = annotate_trial_api(trial_dir, {"reward": 0.0})
+
+        assert result == []
