@@ -33,7 +33,7 @@ dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
 observatory = "agent_diagnostics.cli:main"
 
 [project.urls]
-Repository = "https://github.com/sourcegraph/agent-observatory"
+Repository = "https://github.com/sourcegraph/agent-diagnostics"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_diagnostics"]
@@ -44,6 +44,12 @@ line-length = 99
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+
+[tool.coverage.run]
+source = ["agent_diagnostics"]
+
+[tool.coverage.report]
+fail_under = 80
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
