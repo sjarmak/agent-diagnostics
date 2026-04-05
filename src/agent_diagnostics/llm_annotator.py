@@ -85,9 +85,9 @@ _ANNOTATION_SCHEMA = {
 
 def _taxonomy_yaml() -> str:
     """Return the full taxonomy YAML as a string for prompt injection."""
-    from agent_diagnostics.taxonomy import _package_data_path
+    from agent_diagnostics.taxonomy import TAXONOMY_FILENAME, _package_data_path
 
-    path = _package_data_path("taxonomy_v1.yaml")
+    path = _package_data_path(TAXONOMY_FILENAME)
     return path.read_text()
 
 
@@ -273,6 +273,48 @@ def validate_categories(categories: list, trial_dir: str | Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Shared response parsing (used by both claude-code backends)
+# ---------------------------------------------------------------------------
+
+
+def _parse_claude_response(envelope: dict) -> list[dict] | None:
+    """Parse a Claude CLI JSON envelope and return raw category dicts.
+
+    Returns a list of category dicts on success, or ``None`` when the
+    envelope indicates an error, empty result, bad JSON, or non-list
+    categories.  The caller is responsible for running
+    ``validate_categories`` on the returned list.
+    """
+    if envelope.get("is_error"):
+        return None
+
+    structured = envelope.get("structured_output")
+    if structured and isinstance(structured, dict):
+        categories = structured.get("categories", [])
+    else:
+        raw = envelope.get("result", "").strip()
+        if not raw:
+            return None
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [line for line in lines if not line.strip().startswith("```")]
+            raw = "\n".join(lines).strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        categories = (
+            parsed.get("categories", parsed) if isinstance(parsed, dict) else parsed
+        )
+
+    if not isinstance(categories, list):
+        return None
+
+    return categories
+
+
+# ---------------------------------------------------------------------------
 # Backend: claude-code (subprocess)
 # ---------------------------------------------------------------------------
 
@@ -337,31 +379,9 @@ def annotate_trial_claude_code(
             return []
 
         envelope = json.loads(result.stdout)
-
-        if envelope.get("is_error"):
-            logger.error(
-                "claude CLI returned error for %s: %s",
-                trial_dir,
-                envelope.get("result", "")[:500],
-            )
+        categories = _parse_claude_response(envelope)
+        if categories is None:
             return []
-
-        structured = envelope.get("structured_output")
-        if structured and isinstance(structured, dict):
-            categories = structured.get("categories", [])
-        else:
-            raw = envelope.get("result", "").strip()
-            if not raw:
-                return []
-            parsed = json.loads(raw)
-            categories = (
-                parsed.get("categories", parsed) if isinstance(parsed, dict) else parsed
-            )
-
-        if not isinstance(categories, list):
-            logger.warning("Non-list categories from claude CLI for %s", trial_dir)
-            return []
-
         return validate_categories(categories, trial_dir)
 
     except subprocess.TimeoutExpired:
@@ -422,33 +442,9 @@ async def _annotate_one_claude_code(
                 return idx, []
 
             envelope = json.loads(stdout.decode())
-
-            if envelope.get("is_error"):
-                logger.error(
-                    "claude CLI error for trial %d (%s): %s",
-                    idx,
-                    trial_dir,
-                    envelope.get("result", "")[:500],
-                )
+            categories = _parse_claude_response(envelope)
+            if categories is None:
                 return idx, []
-
-            structured = envelope.get("structured_output")
-            if structured and isinstance(structured, dict):
-                categories = structured.get("categories", [])
-            else:
-                raw = envelope.get("result", "").strip()
-                if not raw:
-                    return idx, []
-                parsed = json.loads(raw)
-                categories = (
-                    parsed.get("categories", parsed)
-                    if isinstance(parsed, dict)
-                    else parsed
-                )
-
-            if not isinstance(categories, list):
-                return idx, []
-
             return idx, validate_categories(categories, trial_dir)
 
         except asyncio.TimeoutError:

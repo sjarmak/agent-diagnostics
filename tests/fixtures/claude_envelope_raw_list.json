@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "cost_usd": 0.002,
+  "is_error": false,
+  "result": "[{\"name\": \"retrieval_failure\", \"confidence\": 0.6, \"evidence\": \"missed file\"}]",
+  "structured_output": null
+}

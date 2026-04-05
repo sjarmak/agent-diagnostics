@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "cost_usd": 0.002,
+  "is_error": false,
+  "result": "```json\n{\"categories\": [{\"name\": \"decomposition_failure\", \"confidence\": 0.85, \"evidence\": \"Agent did not break task into subtasks\"}]}\n```",
+  "structured_output": null
+}

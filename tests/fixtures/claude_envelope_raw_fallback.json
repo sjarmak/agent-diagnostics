@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "cost_usd": 0.002,
+  "is_error": false,
+  "result": "{\"categories\": [{\"name\": \"stale_context\", \"confidence\": 0.8, \"evidence\": \"Context window exceeded\"}]}",
+  "structured_output": null
+}

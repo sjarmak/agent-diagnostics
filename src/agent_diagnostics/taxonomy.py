@@ -6,6 +6,8 @@ from typing import Optional, Set, Union
 
 import yaml
 
+TAXONOMY_FILENAME = "taxonomy_v1.yaml"
+
 _cached_taxonomy: Optional[dict] = None
 _cached_path: Optional[Path] = None
 
@@ -54,7 +56,7 @@ def load_taxonomy(path: Optional[Union[str, Path]] = None) -> dict:
         each containing a 'categories' list).
     """
     global _cached_taxonomy, _cached_path
-    resolved = Path(path) if path else _package_data_path("taxonomy_v1.yaml")
+    resolved = Path(path) if path else _package_data_path(TAXONOMY_FILENAME)
     if _cached_taxonomy is not None and _cached_path == resolved:
         return _cached_taxonomy
     with open(resolved) as f:

@@ -1,0 +1,21 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "cost_usd": 0.003,
+  "is_error": false,
+  "result": "",
+  "structured_output": {
+    "categories": [
+      {
+        "name": "retrieval_failure",
+        "confidence": 0.9,
+        "evidence": "Agent failed to find the correct file"
+      },
+      {
+        "name": "query_churn",
+        "confidence": 0.7,
+        "evidence": "Repeated similar searches"
+      }
+    ]
+  }
+}
