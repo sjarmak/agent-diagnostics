@@ -8,7 +8,7 @@ from pathlib import Path
 
 def cmd_extract(args):
     """Extract signals from trial directories."""
-    from agent_observatory.signals import extract_all
+    from agent_diagnostics.signals import extract_all
 
     runs_dir = Path(args.runs_dir)
     if not runs_dir.is_dir():
@@ -27,7 +27,7 @@ def cmd_extract(args):
 
 def cmd_annotate(args):
     """Generate heuristic annotations from extracted signals."""
-    from agent_observatory.annotator import annotate_all
+    from agent_diagnostics.annotator import annotate_all
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
@@ -54,7 +54,7 @@ def cmd_annotate(args):
 
 def cmd_report(args):
     """Generate reliability report from annotations."""
-    from agent_observatory.report import generate_report
+    from agent_diagnostics.report import generate_report
 
     annotations_path = Path(args.annotations)
     if not annotations_path.is_file():
@@ -75,8 +75,8 @@ def cmd_llm_annotate(args):
     import random
     from datetime import datetime, timezone
 
-    from agent_observatory.llm_annotator import annotate_trial_llm
-    from agent_observatory.taxonomy import load_taxonomy
+    from agent_diagnostics.llm_annotator import annotate_trial_llm
+    from agent_diagnostics.taxonomy import load_taxonomy
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
@@ -160,7 +160,7 @@ def cmd_llm_annotate(args):
 
 def cmd_train(args):
     """Train per-category classifiers from LLM-labeled data."""
-    from agent_observatory.classifier import (
+    from agent_diagnostics.classifier import (
         evaluate,
         format_eval_markdown,
         save_model,
@@ -203,7 +203,7 @@ def cmd_train(args):
 
 def cmd_predict(args):
     """Predict categories for all trials using a trained classifier."""
-    from agent_observatory.classifier import load_model, predict_all
+    from agent_diagnostics.classifier import load_model, predict_all
 
     model = load_model(args.model)
     with open(args.signals) as f:
@@ -227,8 +227,8 @@ def cmd_predict(args):
 
 def cmd_ensemble(args):
     """Run two-tier ensemble annotation (heuristic + classifier) on full corpus."""
-    from agent_observatory.classifier import load_model
-    from agent_observatory.ensemble import ensemble_all
+    from agent_diagnostics.classifier import load_model
+    from agent_diagnostics.ensemble import ensemble_all
 
     model = load_model(args.model)
     with open(args.signals) as f:
@@ -261,7 +261,7 @@ def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
 
-    from agent_observatory.taxonomy import valid_category_names
+    from agent_diagnostics.taxonomy import valid_category_names
 
     annotations_path = Path(args.annotations)
     if not annotations_path.is_file():

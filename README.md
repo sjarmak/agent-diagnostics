@@ -5,13 +5,13 @@ A behavioral taxonomy and annotation framework for analyzing why coding agents s
 ## Install
 
 ```bash
-pip install agent-observatory
+pip install agent-diagnostics
 ```
 
 ## Quick Start
 
 ```python
-from agent_observatory import load_taxonomy, valid_category_names
+from agent_diagnostics import load_taxonomy, valid_category_names
 
 # Load the 23-category behavioral taxonomy
 taxonomy = load_taxonomy()
@@ -22,7 +22,7 @@ names = valid_category_names()
 print(names)
 
 # Validate an annotation
-from agent_observatory import validate_annotation_categories
+from agent_diagnostics import validate_annotation_categories
 
 annotation = {
     "categories": [
@@ -36,11 +36,11 @@ validate_annotation_categories(annotation)  # raises ValueError if invalid
 
 The taxonomy organizes agent behaviors into three polarities:
 
-| Polarity | Count | Purpose |
-|----------|-------|---------|
+| Polarity | Count | Purpose                                         |
+| -------- | ----- | ----------------------------------------------- |
 | failure  | 16    | Explains why the agent failed or underperformed |
-| success  | 5     | Explains which strategy led to success |
-| neutral  | 2-3   | Contextual factors that affect interpretation |
+| success  | 5     | Explains which strategy led to success          |
+| neutral  | 2-3   | Contextual factors that affect interpretation   |
 
 ## Taxonomy Versions
 
@@ -48,7 +48,7 @@ The taxonomy organizes agent behaviors into three polarities:
 - **v2** (hierarchical): Categories organized by dimension (Retrieval, Execution, etc.)
 
 ```python
-from agent_observatory.taxonomy import load_taxonomy, _package_data_path
+from agent_diagnostics.taxonomy import load_taxonomy, _package_data_path
 
 # Load v2 (hierarchical dimensions)
 v2 = load_taxonomy(_package_data_path("taxonomy_v2.yaml"))
@@ -59,7 +59,7 @@ v2 = load_taxonomy(_package_data_path("taxonomy_v2.yaml"))
 The package includes a JSON Schema for machine-readable annotations:
 
 ```python
-from agent_observatory.taxonomy import get_schema_path
+from agent_diagnostics.taxonomy import get_schema_path
 
 schema_path = get_schema_path()
 ```

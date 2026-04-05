@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 
 
 class TestToolRegistryDataclass:
@@ -114,7 +114,7 @@ class TestImport:
     """Verify the public import path works."""
 
     def test_import_from_module(self) -> None:
-        from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+        from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 
         assert ToolRegistry is not None
         assert DEFAULT_REGISTRY is not None

@@ -1,4 +1,4 @@
-"""Tests for agent_observatory.calibrate — agreement and calibration analysis."""
+"""Tests for agent_diagnostics.calibrate — agreement and calibration analysis."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_observatory.calibrate import (
+from agent_diagnostics.calibrate import (
     cohen_kappa,
     compare_annotations,
     compare_cross_model,

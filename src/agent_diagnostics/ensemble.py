@@ -10,16 +10,16 @@ Tier 2 (classifier): Categories with sufficient training data and F1 >= 0.7
 
 Usage::
 
-    from agent_observatory.ensemble import ensemble_annotate, ensemble_all
+    from agent_diagnostics.ensemble import ensemble_annotate, ensemble_all
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from agent_observatory.annotator import annotate_trial as heuristic_annotate
-from agent_observatory.classifier import load_model, predict_trial, signals_to_features
-from agent_observatory.taxonomy import load_taxonomy
+from agent_diagnostics.annotator import annotate_trial as heuristic_annotate
+from agent_diagnostics.classifier import load_model, predict_trial, signals_to_features
+from agent_diagnostics.taxonomy import load_taxonomy
 
 # Categories where heuristic rules are deterministic and reliable.
 # These don't need the classifier — the rule IS the ground truth.

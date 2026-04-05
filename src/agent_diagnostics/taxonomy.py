@@ -12,7 +12,7 @@ _cached_path: Optional[Path] = None
 
 def _package_data_path(filename: str) -> Path:
     """Resolve a data file bundled with this package."""
-    ref = resources.files("agent_observatory") / filename
+    ref = resources.files("agent_diagnostics") / filename
     return Path(str(ref))
 
 

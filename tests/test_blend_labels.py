@@ -1,4 +1,4 @@
-"""Tests for agent_observatory.blend_labels."""
+"""Tests for agent_diagnostics.blend_labels."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_observatory.blend_labels import blend
+from agent_diagnostics.blend_labels import blend
 
 
 def _write_annotation_file(tmp_path: Path, name: str, annotations: list[dict]) -> Path:

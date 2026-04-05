@@ -14,8 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
-from agent_observatory.types import TrialSignals
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.types import TrialSignals
 
 # ---------------------------------------------------------------------------
 # Internal helpers

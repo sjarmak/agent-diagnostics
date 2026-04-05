@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent_observatory.annotator import annotate_trial
-from agent_observatory.taxonomy import valid_category_names
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
-from agent_observatory.types import CategoryAssignment, TrialSignals
+from agent_diagnostics.annotator import annotate_trial
+from agent_diagnostics.taxonomy import valid_category_names
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.types import CategoryAssignment, TrialSignals
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,7 +26,7 @@ def _names(results: list[CategoryAssignment]) -> set[str]:
 
 class TestImport:
     def test_import_annotate_trial(self) -> None:
-        from agent_observatory.annotator import annotate_trial as fn
+        from agent_diagnostics.annotator import annotate_trial as fn
 
         assert callable(fn)
 

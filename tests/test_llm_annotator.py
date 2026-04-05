@@ -9,8 +9,8 @@ from unittest import mock
 
 import pytest
 
-from agent_observatory import llm_annotator
-from agent_observatory.llm_annotator import (
+from agent_diagnostics import llm_annotator
+from agent_diagnostics.llm_annotator import (
     annotate_batch,
     annotate_trial_api,
     annotate_trial_claude_code,

@@ -1,4 +1,4 @@
-"""Tests for agent_observatory.classifier module."""
+"""Tests for agent_diagnostics.classifier module."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_observatory.classifier import (
+from agent_diagnostics.classifier import (
     FEATURE_NAMES,
     evaluate,
     load_model,
@@ -268,7 +268,7 @@ class TestNoForbiddenImports:
         source = (
             Path(__file__).resolve().parent.parent
             / "src"
-            / "agent_observatory"
+            / "agent_diagnostics"
             / "classifier.py"
         )
         content = source.read_text()
@@ -279,7 +279,7 @@ class TestNoForbiddenImports:
         source = (
             Path(__file__).resolve().parent.parent
             / "src"
-            / "agent_observatory"
+            / "agent_diagnostics"
             / "classifier.py"
         )
         content = source.read_text()
@@ -290,7 +290,7 @@ class TestNoForbiddenImports:
         source = (
             Path(__file__).resolve().parent.parent
             / "src"
-            / "agent_observatory"
+            / "agent_diagnostics"
             / "classifier.py"
         )
         content = source.read_text()
@@ -305,7 +305,7 @@ class TestNoForbiddenImports:
 
 class TestImports:
     def test_all_public_names_importable(self) -> None:
-        from agent_observatory.classifier import (  # noqa: F401
+        from agent_diagnostics.classifier import (  # noqa: F401
             FEATURE_NAMES,
             evaluate,
             load_model,

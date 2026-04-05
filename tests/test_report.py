@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_observatory.report import generate_report
+from agent_diagnostics.report import generate_report
 
 
 def _make_annotations(ann_list: list[dict]) -> dict:
@@ -288,6 +288,6 @@ class TestImportPath:
     """Verify the public import works."""
 
     def test_import_generate_report(self) -> None:
-        from agent_observatory.report import generate_report as gr
+        from agent_diagnostics.report import generate_report as gr
 
         assert callable(gr)

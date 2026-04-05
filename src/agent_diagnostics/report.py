@@ -16,7 +16,7 @@ from typing import Any
 def _load_taxonomy_polarity() -> dict[str, str]:
     """Return a mapping of category name -> polarity from the taxonomy."""
     try:
-        from agent_observatory.taxonomy import load_taxonomy
+        from agent_diagnostics.taxonomy import load_taxonomy
 
         tax = load_taxonomy()
         return {c["name"]: c["polarity"] for c in tax["categories"]}

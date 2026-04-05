@@ -2,18 +2,18 @@
 
 __version__ = "0.5.0"
 
-from agent_observatory.annotator import annotate_trial
-from agent_observatory.ensemble import ensemble_all, ensemble_annotate
-from agent_observatory.llm_annotator import annotate_trial_llm
-from agent_observatory.report import generate_report
-from agent_observatory.signals import extract_all, extract_signals
-from agent_observatory.taxonomy import (
+from agent_diagnostics.annotator import annotate_trial
+from agent_diagnostics.ensemble import ensemble_all, ensemble_annotate
+from agent_diagnostics.llm_annotator import annotate_trial_llm
+from agent_diagnostics.report import generate_report
+from agent_diagnostics.signals import extract_all, extract_signals
+from agent_diagnostics.taxonomy import (
     load_taxonomy,
     valid_category_names,
     validate_annotation_categories,
 )
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
-from agent_observatory.types import (
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.types import (
     Annotation,
     AnnotationDocument,
     CategoryAssignment,

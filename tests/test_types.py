@@ -1,11 +1,11 @@
-"""Tests for agent_observatory.types — data contract types."""
+"""Tests for agent_diagnostics.types — data contract types."""
 
 from dataclasses import FrozenInstanceError
 from typing import Protocol, get_type_hints
 
 import pytest
 
-from agent_observatory.types import (
+from agent_diagnostics.types import (
     Annotation,
     AnnotationDocument,
     CategoryAssignment,

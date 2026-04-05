@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-import agent_observatory
-from agent_observatory.taxonomy import (
+import agent_diagnostics
+from agent_diagnostics.taxonomy import (
     _extract_categories,
     _is_v2,
     _package_data_path,
@@ -181,4 +181,4 @@ class TestVersion:
     """Package version is accessible."""
 
     def test_version_string(self) -> None:
-        assert agent_observatory.__version__ == "0.5.0"
+        assert agent_diagnostics.__version__ == "0.5.0"

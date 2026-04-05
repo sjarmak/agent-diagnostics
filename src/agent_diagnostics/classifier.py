@@ -348,7 +348,7 @@ def predict_all(
     """Predict categories for all trials, return annotation document."""
     from datetime import datetime, timezone
 
-    from agent_observatory.taxonomy import load_taxonomy
+    from agent_diagnostics.taxonomy import load_taxonomy
 
     taxonomy = load_taxonomy()
     now = datetime.now(timezone.utc).isoformat()
@@ -380,7 +380,7 @@ def predict_all(
         "annotator": {
             "type": "classifier",
             "identity": (
-                f"agent_observatory.classifier v1 ({len(model['classifiers'])} "
+                f"agent_diagnostics.classifier v1 ({len(model['classifiers'])} "
                 f"categories, trained on {model['training_samples']} samples)"
             ),
         },

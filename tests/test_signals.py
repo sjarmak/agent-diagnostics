@@ -1,4 +1,4 @@
-"""Tests for agent_observatory.signals module."""
+"""Tests for agent_diagnostics.signals module."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_observatory.signals import extract_all, extract_signals
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
-from agent_observatory.types import TrialSignals
+from agent_diagnostics.signals import extract_all, extract_signals
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.types import TrialSignals
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic trial directory builders
@@ -144,17 +144,17 @@ def rate_limited_trial(tmp_path: Path) -> Path:
 
 class TestImports:
     def test_import_extract_signals(self) -> None:
-        from agent_observatory.signals import extract_signals as fn
+        from agent_diagnostics.signals import extract_signals as fn
 
         assert callable(fn)
 
     def test_import_extract_all(self) -> None:
-        from agent_observatory.signals import extract_all as fn
+        from agent_diagnostics.signals import extract_all as fn
 
         assert callable(fn)
 
     def test_package_level_import(self) -> None:
-        from agent_observatory import extract_all, extract_signals
+        from agent_diagnostics import extract_all, extract_signals
 
         assert callable(extract_signals)
         assert callable(extract_all)
@@ -722,7 +722,7 @@ class TestRewardScoreFallback:
 class TestNoCsbDependencies:
     def test_no_csb_imports(self) -> None:
         import inspect
-        import agent_observatory.signals as mod
+        import agent_diagnostics.signals as mod
 
         source = inspect.getsource(mod)
         assert "csb_metrics" not in source

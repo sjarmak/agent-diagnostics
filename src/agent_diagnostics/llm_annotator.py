@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_observatory.taxonomy import load_taxonomy
+from agent_diagnostics.taxonomy import load_taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ _ANNOTATION_SCHEMA = {
 
 def _taxonomy_yaml() -> str:
     """Return the full taxonomy YAML as a string for prompt injection."""
-    from agent_observatory.taxonomy import _package_data_path
+    from agent_diagnostics.taxonomy import _package_data_path
 
     path = _package_data_path("taxonomy_v1.yaml")
     return path.read_text()

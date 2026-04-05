@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_observatory.ensemble import (
+from agent_diagnostics.ensemble import (
     HEURISTIC_ONLY,
     ensemble_all,
     ensemble_annotate,
 )
-from agent_observatory.types import CategoryAssignment
+from agent_diagnostics.types import CategoryAssignment
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -140,11 +140,11 @@ class TestEnsembleAnnotate:
 
         with (
             patch(
-                "agent_observatory.ensemble.heuristic_annotate",
+                "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=mock_heur_results,
             ),
             patch(
-                "agent_observatory.ensemble.predict_trial",
+                "agent_diagnostics.ensemble.predict_trial",
                 return_value=mock_clf_results,
             ),
         ):
@@ -178,11 +178,11 @@ class TestEnsembleAnnotate:
 
         with (
             patch(
-                "agent_observatory.ensemble.heuristic_annotate",
+                "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=mock_heur_results,
             ),
             patch(
-                "agent_observatory.ensemble.predict_trial",
+                "agent_diagnostics.ensemble.predict_trial",
                 return_value=mock_clf_results,
             ),
         ):
@@ -206,11 +206,11 @@ class TestEnsembleAnnotate:
 
         with (
             patch(
-                "agent_observatory.ensemble.heuristic_annotate",
+                "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=mock_heur_results,
             ),
             patch(
-                "agent_observatory.ensemble.predict_trial",
+                "agent_diagnostics.ensemble.predict_trial",
                 return_value=mock_clf_results,
             ),
         ):
@@ -227,11 +227,11 @@ class TestEnsembleAnnotate:
 
         with (
             patch(
-                "agent_observatory.ensemble.heuristic_annotate",
+                "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=mock_heur_results,
             ),
             patch(
-                "agent_observatory.ensemble.predict_trial",
+                "agent_diagnostics.ensemble.predict_trial",
                 return_value=mock_clf_results,
             ),
         ):
@@ -338,7 +338,7 @@ class TestNoCsbImports:
 
     def test_no_observatory_imports(self) -> None:
         """Parse ensemble.py AST and verify no imports from 'observatory'."""
-        import agent_observatory.ensemble as mod
+        import agent_diagnostics.ensemble as mod
 
         source_path = mod.__file__
         assert source_path is not None

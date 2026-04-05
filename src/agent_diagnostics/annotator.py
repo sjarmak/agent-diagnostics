@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from agent_observatory.taxonomy import valid_category_names
-from agent_observatory.tool_registry import DEFAULT_REGISTRY, ToolRegistry
-from agent_observatory.types import CategoryAssignment, TrialSignals
+from agent_diagnostics.taxonomy import valid_category_names
+from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.types import CategoryAssignment, TrialSignals
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -8,16 +8,16 @@ import pytest
 
 
 def test_main_importable():
-    """from agent_observatory.cli import main succeeds."""
-    from agent_observatory.cli import main
+    """from agent_diagnostics.cli import main succeeds."""
+    from agent_diagnostics.cli import main
 
     assert callable(main)
 
 
 def test_help_output_includes_all_subcommands():
-    """python -m agent_observatory --help lists all 8 subcommands."""
+    """python -m agent_diagnostics --help lists all 8 subcommands."""
     result = subprocess.run(
-        [sys.executable, "-m", "agent_observatory", "--help"],
+        [sys.executable, "-m", "agent_diagnostics", "--help"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -42,7 +42,7 @@ def test_help_output_includes_all_subcommands():
 def test_no_judge_flag_in_help():
     """--judge flag must not appear in llm-annotate help."""
     result = subprocess.run(
-        [sys.executable, "-m", "agent_observatory", "llm-annotate", "--help"],
+        [sys.executable, "-m", "agent_diagnostics", "llm-annotate", "--help"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -53,10 +53,10 @@ def test_no_judge_flag_in_help():
     ), "--judge flag should not exist on llm-annotate"
 
 
-def test_cli_imports_use_agent_observatory():
-    """All imports in cli.py use agent_observatory, not observatory."""
+def test_cli_imports_use_agent_diagnostics():
+    """All imports in cli.py use agent_diagnostics, not observatory."""
     cli_path = (
-        Path(__file__).resolve().parent.parent / "src" / "agent_observatory" / "cli.py"
+        Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "cli.py"
     )
     content = cli_path.read_text()
 
@@ -68,20 +68,20 @@ def test_cli_imports_use_agent_observatory():
         ):
             pytest.fail(f"Found bare observatory import: {stripped}")
 
-    # Should have agent_observatory imports
-    assert "from agent_observatory." in content
+    # Should have agent_diagnostics imports
+    assert "from agent_diagnostics." in content
 
 
-def test_dunder_main_imports_from_agent_observatory():
-    """__main__.py imports from agent_observatory.cli."""
+def test_dunder_main_imports_from_agent_diagnostics():
+    """__main__.py imports from agent_diagnostics.cli."""
     main_path = (
         Path(__file__).resolve().parent.parent
         / "src"
-        / "agent_observatory"
+        / "agent_diagnostics"
         / "__main__.py"
     )
     content = main_path.read_text()
-    assert "from agent_observatory.cli import main" in content
+    assert "from agent_diagnostics.cli import main" in content
 
 
 def test_pyproject_has_scripts_entry():
@@ -89,4 +89,4 @@ def test_pyproject_has_scripts_entry():
     pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
     content = pyproject_path.read_text()
     assert "[project.scripts]" in content
-    assert 'observatory = "agent_observatory.cli:main"' in content
+    assert 'observatory = "agent_diagnostics.cli:main"' in content
