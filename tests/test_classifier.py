@@ -315,3 +315,243 @@ class TestImports:
             signals_to_features,
             train,
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests — _to_float edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestToFloat:
+    def test_unconvertible_string_returns_zero(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float("not_a_number") == 0.0
+
+    def test_none_returns_zero(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float(None) == 0.0
+
+    def test_bool_true(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float(True) == 1.0
+
+    def test_bool_false(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float(False) == 0.0
+
+    def test_numeric_string(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float("3.14") == pytest.approx(3.14)
+
+    def test_unconvertible_object_returns_zero(self) -> None:
+        from agent_diagnostics.classifier import _to_float
+
+        assert _to_float(object()) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tests — _scale edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestScale:
+    def test_empty_matrix_returns_defaults(self) -> None:
+        from agent_diagnostics.classifier import FEATURE_NAMES, _scale
+
+        means, stds = _scale([])
+        assert len(means) == len(FEATURE_NAMES)
+        assert len(stds) == len(FEATURE_NAMES)
+        assert all(m == 0.0 for m in means)
+        assert all(s == 1.0 for s in stds)
+
+
+# ---------------------------------------------------------------------------
+# Tests — _train_binary_lr degenerate inputs
+# ---------------------------------------------------------------------------
+
+
+class TestTrainBinaryLR:
+    def test_all_same_labels_positive(self) -> None:
+        from agent_diagnostics.classifier import _scale, _train_binary_lr
+
+        X = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
+        y = [1, 1, 1]  # all positive
+        means, stds = _scale(X)
+        w, b = _train_binary_lr(X, y, means, stds, epochs=10)
+        assert isinstance(w, list)
+        assert isinstance(b, float)
+        assert len(w) == 2
+
+    def test_all_same_labels_negative(self) -> None:
+        from agent_diagnostics.classifier import _scale, _train_binary_lr
+
+        X = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
+        y = [0, 0, 0]  # all negative
+        means, stds = _scale(X)
+        w, b = _train_binary_lr(X, y, means, stds, epochs=10)
+        assert isinstance(w, list)
+        assert isinstance(b, float)
+
+    def test_zero_variance_features(self) -> None:
+        from agent_diagnostics.classifier import _scale, _train_binary_lr
+
+        # All rows identical — zero variance features
+        X = [[1.0, 1.0]] * 6
+        y = [1, 0, 1, 0, 1, 0]
+        means, stds = _scale(X)
+        w, b = _train_binary_lr(X, y, means, stds, epochs=10)
+        assert isinstance(w, list)
+        assert isinstance(b, float)
+
+
+# ---------------------------------------------------------------------------
+# Tests — predict_all with trained model
+# ---------------------------------------------------------------------------
+
+
+class TestPredictAll:
+    def test_returns_annotation_document(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3)
+
+        signals_list = [
+            _make_signals("/test/0", reward=0.0, passed=False),
+            _make_signals("/test/1", reward=1.0, passed=True),
+        ]
+
+        fake_taxonomy = {"version": "2.0", "dimensions": []}
+        with patch(
+            "agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy
+        ):
+            result = predict_all(signals_list, model, threshold=0.01)
+
+        assert result["schema_version"] == "observatory-annotation-v1"
+        assert "taxonomy_version" in result
+        assert "generated_at" in result
+        assert result["annotator"]["type"] == "classifier"
+        assert isinstance(result["annotations"], list)
+
+    def test_annotations_have_expected_fields(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3)
+
+        signals_list = [_make_signals("/test/0", reward=0.0, passed=False)]
+
+        fake_taxonomy = {"version": "2.0", "dimensions": []}
+        with patch(
+            "agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy
+        ):
+            result = predict_all(signals_list, model, threshold=0.01)
+
+        for ann in result["annotations"]:
+            assert "task_id" in ann
+            assert "trial_path" in ann
+            assert "categories" in ann
+            assert "annotated_at" in ann
+            assert "reward" in ann
+            assert "passed" in ann
+
+
+# ---------------------------------------------------------------------------
+# Tests — format_eval_markdown
+# ---------------------------------------------------------------------------
+
+
+class TestFormatEvalMarkdown:
+    def test_output_contains_header_and_table(self, tmp_path: Path) -> None:
+        from agent_diagnostics.classifier import format_eval_markdown
+
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3)
+        eval_results = evaluate(model, llm_path, sig_path)
+
+        md = format_eval_markdown(eval_results, model)
+        assert "## Classifier Evaluation" in md
+        assert "| Category |" in md
+        assert f"Training samples: {model['training_samples']}" in md
+        assert f"Categories trained: {len(model['classifiers'])}" in md
+
+    def test_no_classifier_row(self) -> None:
+        from agent_diagnostics.classifier import format_eval_markdown
+
+        model = {
+            "training_samples": 10,
+            "classifiers": {},
+            "skipped_categories": ["cat_a"],
+            "min_positive": 3,
+        }
+        eval_results = {
+            "missing_cat": {
+                "status": "no_classifier",
+                "positive_in_eval": 5,
+            }
+        }
+        md = format_eval_markdown(eval_results, model)
+        assert "no clf" in md
+        assert "missing_cat" in md
+
+    def test_skipped_categories_displayed(self) -> None:
+        from agent_diagnostics.classifier import format_eval_markdown
+
+        model = {
+            "training_samples": 10,
+            "classifiers": {"cat_b": {"train_accuracy": 0.95}},
+            "skipped_categories": ["cat_a", "cat_c"],
+            "min_positive": 3,
+        }
+        eval_results = {
+            "cat_b": {
+                "tp": 5,
+                "fp": 1,
+                "fn": 1,
+                "tn": 3,
+                "precision": 0.83,
+                "recall": 0.83,
+                "f1": 0.83,
+            },
+        }
+        md = format_eval_markdown(eval_results, model)
+        assert "cat_a, cat_c" in md
+
+
+# ---------------------------------------------------------------------------
+# Tests — evaluate with no_classifier path
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluateNoClassifier:
+    def test_category_not_in_model_returns_no_classifier(self, tmp_path: Path) -> None:
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3)
+
+        # Remove one classifier from the model to trigger no_classifier path
+        removed_cat = list(model["classifiers"].keys())[0]
+        del model["classifiers"][removed_cat]
+
+        results = evaluate(model, llm_path, sig_path)
+        assert results[removed_cat]["status"] == "no_classifier"
+        assert "positive_in_eval" in results[removed_cat]
+
+
+# ---------------------------------------------------------------------------
+# Tests — train with invalid LLM file
+# ---------------------------------------------------------------------------
+
+
+class TestTrainValidation:
+    def test_non_list_annotations_raises(self, tmp_path: Path) -> None:
+        llm_path = tmp_path / "bad_llm.json"
+        llm_path.write_text(json.dumps({"annotations": "not_a_list"}))
+        sig_path = _make_signals_file(tmp_path, [{"trial_path": "/t", "reward": 1.0}])
+
+        with pytest.raises(ValueError, match="Expected annotations list"):
+            train(llm_path, sig_path)
