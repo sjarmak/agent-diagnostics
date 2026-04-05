@@ -1,9 +1,11 @@
 """Agent Reliability Observatory — behavioral taxonomy and annotation framework for coding agents."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from agent_observatory.annotator import annotate_trial
 from agent_observatory.ensemble import ensemble_all, ensemble_annotate
+from agent_observatory.llm_annotator import annotate_trial_llm
+from agent_observatory.report import generate_report
 from agent_observatory.signals import extract_all, extract_signals
 from agent_observatory.taxonomy import (
     load_taxonomy,
@@ -28,10 +30,12 @@ __all__ = [
     "TrialInput",
     "TrialSignals",
     "annotate_trial",
+    "annotate_trial_llm",
     "ensemble_all",
     "ensemble_annotate",
     "extract_all",
     "extract_signals",
+    "generate_report",
     "load_taxonomy",
     "valid_category_names",
     "validate_annotation_categories",
