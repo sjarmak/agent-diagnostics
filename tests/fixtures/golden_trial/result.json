@@ -1,0 +1,16 @@
+{
+  "task_name": "golden_test_task",
+  "config_name": "golden_config",
+  "started_at": "2025-01-01T00:00:00Z",
+  "finished_at": "2025-01-01T00:02:30Z",
+  "verifier_result": {
+    "rewards": {
+      "reward": 0.0
+    }
+  },
+  "agent_info": {
+    "model_info": {
+      "name": "anthropic/claude-sonnet-4-6"
+    }
+  }
+}

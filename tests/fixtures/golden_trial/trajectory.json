@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": { "command": "ls" }
+        }
+      ],
+      "observation": {
+        "results": [{ "content": "file1.py\nfile2.py" }]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": { "command": "cat file1.py" }
+        }
+      ],
+      "observation": {
+        "results": [{ "content": "def main():\n    pass" }]
+      }
+    }
+  ]
+}

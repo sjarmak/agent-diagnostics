@@ -1,0 +1,1 @@
+Fix the bug in file1.py where the main function does not return a value.
