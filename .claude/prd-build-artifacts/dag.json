@@ -49,8 +49,8 @@
       "tests/conftest.py",
       "tests/fixtures/"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "prd-build/testing-quality",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
