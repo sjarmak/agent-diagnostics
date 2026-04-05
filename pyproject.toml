@@ -29,6 +29,9 @@ llm = ["anthropic>=0.30"]
 validation = ["jsonschema>=4.0"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
 
+[project.scripts]
+observatory = "agent_observatory.cli:main"
+
 [project.urls]
 Repository = "https://github.com/sourcegraph/agent-observatory"
 
