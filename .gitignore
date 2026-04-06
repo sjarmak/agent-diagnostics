@@ -7,3 +7,8 @@ __pycache__/
 .coverage
 .pytest_cache/
 htmlcov/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
