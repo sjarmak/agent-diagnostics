@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
-from agent_diagnostics.taxonomy import load_taxonomy
+from agent_diagnostics.taxonomy import valid_category_names
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +249,7 @@ def build_prompt(
 
 def validate_categories(categories: list, trial_dir: str | Path) -> list[dict]:
     """Validate and filter LLM-returned categories against the taxonomy."""
-    taxonomy_names = {cat["name"] for cat in load_taxonomy()["categories"]}
+    taxonomy_names = valid_category_names()
     valid = []
     for cat in categories:
         if not isinstance(cat, dict):

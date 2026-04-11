@@ -23,6 +23,16 @@ def _is_v2(taxonomy: dict) -> bool:
     return "dimensions" in taxonomy
 
 
+def _is_v3(taxonomy: dict) -> bool:
+    """Return True if the taxonomy dict uses the v3 format (dimensions + extended fields).
+
+    v3 is identified by version string starting with '3.' and having
+    the 'dimensions' key (same structural layout as v2 but with additional
+    per-category fields like severity, derived_from_signal, signal_dependencies).
+    """
+    return taxonomy.get("version", "").startswith("3.") and "dimensions" in taxonomy
+
+
 def _extract_categories(taxonomy: dict) -> list:
     """Extract a flat list of category dicts from either v1 or v2 format.
 
