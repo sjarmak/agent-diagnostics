@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS  # noqa: F401
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import TrialSignals
 
@@ -440,6 +441,28 @@ def extract_signals(
     }
 
     return signals
+
+
+def judge_safe_signals(signals: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *signals* with reward-leaking fields removed.
+
+    This produces a judge-safe subset suitable for LLM annotation prompts.
+    Fields derived from ground-truth evaluation data are stripped so that
+    the judge cannot reverse-engineer the correct answer.
+
+    Redacted fields
+    ---------------
+    - ``reward`` — raw verifier score
+    - ``passed`` — binary pass/fail derived from reward
+    - ``exception_info`` — raw exception payload from the harness
+    - ``exception_crashed`` — derived from ``exception_info``
+
+    Any key present in :data:`REDACTED_SIGNAL_FIELDS` is removed, along with
+    the ``exception_crashed`` field which is derived from ``exception_info``.
+    """
+    derived_fields: frozenset[str] = frozenset({"exception_crashed"})
+    exclude = REDACTED_SIGNAL_FIELDS | derived_fields
+    return {k: v for k, v in signals.items() if k not in exclude}
 
 
 def extract_all(

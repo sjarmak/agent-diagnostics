@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "query_churn",
+      "confidence": 0.85,
+      "evidence": "Agent issued 8 distinct search queries with low overlap and no file reads."
+    }
+  ]
+}

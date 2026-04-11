@@ -1,0 +1,55 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "deprecated_api"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/api.py:10"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "deprecated_api.*import"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": ""
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "from.*import.*deprecated"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/handler.py:1"
+          }
+        ]
+      }
+    }
+  ]
+}

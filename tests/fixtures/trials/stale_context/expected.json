@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "stale_context",
+      "confidence": 0.82,
+      "evidence": "Agent read file at step 3 but edited at step 15 using stale signature."
+    }
+  ]
+}

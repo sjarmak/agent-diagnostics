@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "clean_success",
+      "confidence": 0.99,
+      "evidence": "Agent completed the task efficiently with reward 1.0 and no errors."
+    }
+  ]
+}

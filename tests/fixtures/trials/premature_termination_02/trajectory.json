@@ -1,0 +1,39 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/app.py:10: # TODO: implement feature"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/app.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "class App:\n    def run(self):\n        # TODO: implement feature\n        pass"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -252,6 +252,22 @@ def train(
     if not X:
         raise ValueError("No trials matched between LLM labels and signals")
 
+    # Skip categories marked derived_from_signal in the v3 taxonomy.
+    # These are reward-band categories whose labels are deterministic
+    # functions of the reward signal and should not be learned.
+    from agent_diagnostics.taxonomy import (
+        _extract_categories,
+        _package_data_path,
+        load_taxonomy,
+    )
+
+    _v3_tax = load_taxonomy(_package_data_path("taxonomy_v3.yaml"))
+    _derived_cats: frozenset[str] = frozenset(
+        cat["name"]
+        for cat in _extract_categories(_v3_tax)
+        if cat.get("derived_from_signal", False)
+    )
+
     means, stds = _scale(X)
 
     # Train per-category classifier
@@ -259,6 +275,9 @@ def train(
     skipped: list[str] = []
 
     for cat, labels in sorted(y_per_cat.items()):
+        if cat in _derived_cats:
+            skipped.append(cat)
+            continue
         pos = sum(labels)
         if pos < min_positive:
             skipped.append(cat)

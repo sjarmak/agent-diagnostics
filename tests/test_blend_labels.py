@@ -64,7 +64,7 @@ class TestBasicBlend:
             [
                 _ann(
                     "trial/a",
-                    categories=[{"name": "exception_crash", "confidence": 0.9}],
+                    categories=[{"name": "near_miss", "confidence": 0.9}],
                 )
             ],
         )
@@ -90,7 +90,7 @@ class TestLLMPriority:
                 _ann(
                     shared_path,
                     categories=[
-                        {"name": "exception_crash", "confidence": 0.5},
+                        {"name": "near_miss", "confidence": 0.5},
                         {"name": "query_churn", "confidence": 0.7},
                     ],
                 )
@@ -103,7 +103,7 @@ class TestLLMPriority:
                 _ann(
                     shared_path,
                     categories=[
-                        {"name": "exception_crash", "confidence": 0.95},
+                        {"name": "near_miss", "confidence": 0.95},
                     ],
                 )
             ],
@@ -114,9 +114,9 @@ class TestLLMPriority:
         annotations = result["annotations"]
         assert len(annotations) == 1
         cats = {c["name"]: c for c in annotations[0]["categories"]}
-        # LLM version of exception_crash wins (source=llm, confidence=0.95)
-        assert cats["exception_crash"]["source"] == "llm"
-        assert cats["exception_crash"]["confidence"] == 0.95
+        # LLM version of near_miss wins (source=llm, confidence=0.95)
+        assert cats["near_miss"]["source"] == "llm"
+        assert cats["near_miss"]["confidence"] == 0.95
         # query_churn is NOT a default trusted category, so not supplemented
         assert "query_churn" not in cats
 
@@ -131,7 +131,7 @@ class TestHeuristicOnlyTrusted:
                 _ann(
                     "trial/heur_only",
                     categories=[
-                        {"name": "exception_crash", "confidence": 0.9},
+                        {"name": "near_miss", "confidence": 0.9},
                         {"name": "query_churn", "confidence": 0.8},
                         {"name": "retrieval_failure", "confidence": 0.7},
                     ],
@@ -144,8 +144,8 @@ class TestHeuristicOnlyTrusted:
 
         assert len(result["annotations"]) == 1
         cat_names = {c["name"] for c in result["annotations"][0]["categories"]}
-        # Only exception_crash is in the default trusted set
-        assert cat_names == {"exception_crash"}
+        # Only near_miss is in the taxonomy-driven trusted set
+        assert cat_names == {"near_miss"}
 
     def test_heuristic_only_skipped_if_no_trusted(self, tmp_path: Path) -> None:
         """Heuristic-only trial with no trusted categories is skipped."""
@@ -171,7 +171,7 @@ class TestMaxHeuristicSamples:
         heur_anns = [
             _ann(
                 f"trial/h{i}",
-                categories=[{"name": "exception_crash", "confidence": 0.9}],
+                categories=[{"name": "near_miss", "confidence": 0.9}],
             )
             for i in range(10)
         ]
@@ -237,14 +237,29 @@ class TestCalibrationFile:
 
 
 class TestDefaultTrustedCategories:
-    def test_default_categories_used_without_calibration(self, tmp_path: Path) -> None:
+    def test_default_categories_derived_from_taxonomy(self, tmp_path: Path) -> None:
+        """Without calibration, trusted categories come from taxonomy signal_dependencies."""
+        from agent_diagnostics.taxonomy import (
+            _extract_categories,
+            _package_data_path,
+            load_taxonomy,
+        )
+
+        v3 = load_taxonomy(_package_data_path("taxonomy_v3.yaml"))
         expected_defaults = {
-            "rate_limited_run",
-            "exception_crash",
-            "near_miss",
-            "over_exploration",
-            "edit_verify_loop_failure",
+            cat["name"]
+            for cat in _extract_categories(v3)
+            if cat.get("signal_dependencies")
         }
+        # Sanity: derived reward-band categories must be in the set
+        assert {
+            "incomplete_solution",
+            "near_miss",
+            "minimal_progress",
+        } <= expected_defaults
+        # And the set must be non-empty and contain only valid category names
+        assert len(expected_defaults) >= 3
+
         heur_anns = [
             _ann(f"trial/{cat}", categories=[{"name": cat, "confidence": 0.9}])
             for cat in expected_defaults
@@ -269,11 +284,11 @@ class TestBlendMetadata:
             [
                 _ann(
                     "trial/shared",
-                    categories=[{"name": "exception_crash", "confidence": 0.9}],
+                    categories=[{"name": "near_miss", "confidence": 0.9}],
                 ),
                 _ann(
                     "trial/heur_only",
-                    categories=[{"name": "near_miss", "confidence": 0.8}],
+                    categories=[{"name": "minimal_progress", "confidence": 0.8}],
                 ),
             ],
         )
@@ -299,3 +314,39 @@ class TestBlendMetadata:
         assert meta["heuristic_only_trials"] == 1  # trial/heur_only
         assert meta["total_blended"] == 3  # shared + heur_only + llm_only
         assert meta["trust_threshold"] == 0.7
+
+
+class TestNoHardcodedTrust:
+    def test_no_hardcoded_trust(self) -> None:
+        """The else branch in blend() must not contain a hardcoded category set.
+
+        Verify by inspecting the source AST: the else block should not
+        contain a Set literal with string constants matching known category names.
+        """
+        import ast
+        import inspect
+
+        import agent_diagnostics.blend_labels as mod
+
+        source = inspect.getsource(mod.blend)
+        tree = ast.parse(source)
+
+        # Walk the AST looking for Set literals containing category-name strings
+        hardcoded_cats = {
+            "rate_limited_run",
+            "exception_crash",
+            "near_miss",
+            "over_exploration",
+            "edit_verify_loop_failure",
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Set):
+                str_values = {
+                    elt.value
+                    for elt in node.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                }
+                overlap = str_values & hardcoded_cats
+                assert (
+                    not overlap
+                ), f"Found hardcoded category names in blend() source: {overlap}"

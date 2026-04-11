@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "minimal_progress",
+      "confidence": 0.75,
+      "evidence": "Agent set up BFS skeleton but left visited-node tracking incomplete."
+    }
+  ]
+}

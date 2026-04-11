@@ -1,0 +1,106 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "database connection"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "config/database.py:3"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "db config"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "config/database.py:3"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "sql pool"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": ""
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "connection string"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": ""
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "data source"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": ""
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "db pool settings"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": ""
+          }
+        ]
+      }
+    }
+  ]
+}

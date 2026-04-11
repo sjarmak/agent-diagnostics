@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "ls src/"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "main.py\nutils.py\nauth/"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "cat src/main.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "import utils"
+          }
+        ]
+      }
+    }
+  ]
+}

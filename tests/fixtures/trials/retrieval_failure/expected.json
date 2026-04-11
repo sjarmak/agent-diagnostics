@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "retrieval_failure",
+      "confidence": 0.92,
+      "evidence": "Agent never searched for the target file despite it existing in the repo."
+    }
+  ]
+}

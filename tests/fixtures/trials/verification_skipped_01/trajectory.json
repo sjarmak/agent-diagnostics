@@ -1,0 +1,59 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/utils.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "def helper(): return 1"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "src/utils.py",
+            "old_string": "return 1",
+            "new_string": "return 2"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "src/main.py",
+            "old_string": "import old",
+            "new_string": "import new"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    }
+  ]
+}

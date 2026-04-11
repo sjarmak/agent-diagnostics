@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "edit_verify_loop_failure",
+      "confidence": 0.87,
+      "evidence": "Agent edited utils/parser.py five times with alternating errors."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "component.tsx",
+            "old_string": "class C",
+            "new_string": "function C"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "npm test"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "8 passed, 2 failed"
+          }
+        ]
+      }
+    }
+  ]
+}

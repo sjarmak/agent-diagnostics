@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Protocol, Sequence, TypedDict, runtime_checkable
+from typing import Optional, Protocol, Sequence, TypedDict, Union, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # TrialSignals — typed dict of the 26 signal keys extracted from a trial
@@ -131,3 +131,37 @@ class AnnotationDocument:
     generated_at: Optional[str] = None
     annotator_type: Optional[str] = None
     annotator_identity: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# AnnotationResult — discriminated union for annotation outcomes
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AnnotationOk:
+    """Successful annotation with one or more categories."""
+
+    categories: tuple[dict, ...]
+
+
+@dataclass(frozen=True)
+class AnnotationNoCategoriesFound:
+    """LLM returned no categories for this trial."""
+
+    pass
+
+
+@dataclass(frozen=True)
+class AnnotationError:
+    """Annotation failed with an error."""
+
+    reason: str
+
+
+AnnotationResult = Union[AnnotationOk, AnnotationNoCategoriesFound, AnnotationError]
+AnnotationResult.__doc__ = (
+    "Discriminated union representing the outcome of an annotation attempt. "
+    "Variants: AnnotationOk (success), AnnotationNoCategoriesFound (empty), "
+    "AnnotationError (failure with reason)."
+)

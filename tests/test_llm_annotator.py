@@ -122,9 +122,9 @@ class TestBuildPrompt:
         assert "Read" in prompt
 
     def test_contains_signals_section(self) -> None:
-        prompt = build_prompt("task", [], {"reward": 0.5}, "tax: y")
+        prompt = build_prompt("task", [], {"total_turns": 42}, "tax: y")
         assert "## Extracted signals" in prompt
-        assert "0.5" in prompt
+        assert "42" in prompt
 
     def test_contains_instructions_section(self) -> None:
         prompt = build_prompt("task", [], {}, "tax: y")
@@ -137,6 +137,23 @@ class TestBuildPrompt:
     def test_no_trajectory_shows_placeholder(self) -> None:
         prompt = build_prompt("task", [], {}, "tax: y")
         assert "(no trajectory available)" in prompt
+
+    def test_filters_redacted_signal_fields(self) -> None:
+        prompt = build_prompt(
+            "task",
+            [],
+            {
+                "reward": 0.99,
+                "passed": True,
+                "exception_info": "traceback...",
+                "total_turns": 15,
+            },
+            "tax: y",
+        )
+        assert "total_turns" in prompt
+        assert "reward" not in prompt
+        assert "passed" not in prompt
+        assert "exception_info" not in prompt
 
     def test_filters_tool_calls_by_name(self) -> None:
         prompt = build_prompt(
@@ -716,30 +733,42 @@ class TestAnnotateTrialClaudeCode:
 class TestAnnotateTrialApi:
     """Tests for the annotate_trial_api SDK backend."""
 
+    def _mock_tool_use_message(self, tool_input: dict) -> mock.MagicMock:
+        """Create a mock Anthropic message with a tool_use content block."""
+        content_block = mock.MagicMock()
+        content_block.type = "tool_use"
+        content_block.name = "annotate"
+        content_block.input = tool_input
+        message = mock.MagicMock()
+        message.content = [content_block]
+        return message
+
     def _mock_message(self, text: str) -> mock.MagicMock:
         """Create a mock Anthropic message with the given text content."""
         content_block = mock.MagicMock()
         content_block.text = text
+        content_block.type = "text"
+        content_block.name = None
         message = mock.MagicMock()
         message.content = [content_block]
         return message
 
     def test_success(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
-        response_text = json.dumps(
-            {
-                "categories": [
-                    {
-                        "name": "retrieval_failure",
-                        "confidence": 0.9,
-                        "evidence": "Agent failed to find file",
-                    }
-                ]
-            }
-        )
+        tool_input = {
+            "categories": [
+                {
+                    "name": "retrieval_failure",
+                    "confidence": 0.9,
+                    "evidence": "Agent failed to find file",
+                }
+            ]
+        }
 
         mock_client = mock.MagicMock()
-        mock_client.messages.create.return_value = self._mock_message(response_text)
+        mock_client.messages.create.return_value = self._mock_tool_use_message(
+            tool_input
+        )
 
         mock_anthropic = mock.MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client

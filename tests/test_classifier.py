@@ -555,3 +555,62 @@ class TestTrainValidation:
 
         with pytest.raises(ValueError, match="Expected annotations list"):
             train(llm_path, sig_path)
+
+
+# ---------------------------------------------------------------------------
+# Tests — derived categories excluded from training
+# ---------------------------------------------------------------------------
+
+
+class TestDerivedCategoriesExcluded:
+    """train() must skip categories where taxonomy marks derived_from_signal: true."""
+
+    def test_derived_categories_excluded(self, tmp_path: Path) -> None:
+        """incomplete_solution, near_miss, minimal_progress must not appear in classifiers."""
+        derived_cats = {"incomplete_solution", "near_miss", "minimal_progress"}
+        n = 20
+
+        signals_list: list[dict] = []
+        annotations: list[dict] = []
+
+        for i in range(n):
+            trial_path = f"/trials/trial_{i}"
+            reward = (i % 5) * 0.25  # 0.0, 0.25, 0.5, 0.75, 1.0
+            passed = reward >= 1.0
+            sig = _make_signals(trial_path, reward=reward, passed=passed)
+            signals_list.append(sig)
+
+            cats: list[dict] = []
+            # Always assign a non-derived category so training data exists
+            cats.append({"name": "retrieval_failure", "confidence": 0.9})
+            # Also assign derived categories to many trials
+            if 0 < reward < 1.0:
+                cats.append({"name": "incomplete_solution", "confidence": 0.8})
+            if reward >= 0.5 and reward < 1.0:
+                cats.append({"name": "near_miss", "confidence": 0.85})
+            if 0 < reward < 0.5:
+                cats.append({"name": "minimal_progress", "confidence": 0.7})
+
+            annotations.append(
+                {"trial_path": trial_path, "task_id": f"task-{i}", "categories": cats}
+            )
+
+        llm_path = _make_llm_file(tmp_path, annotations)
+        sig_path = _make_signals_file(tmp_path, signals_list)
+
+        model = train(llm_path, sig_path, min_positive=2)
+
+        # None of the derived categories should have classifiers
+        for cat in derived_cats:
+            assert (
+                cat not in model["classifiers"]
+            ), f"Derived category {cat!r} should be excluded from training"
+
+        # They should appear in skipped_categories
+        for cat in derived_cats:
+            assert (
+                cat in model["skipped_categories"]
+            ), f"Derived category {cat!r} should be in skipped_categories"
+
+        # Non-derived category should still be trained
+        assert "retrieval_failure" in model["classifiers"]

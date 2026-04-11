@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "verification_skipped",
+      "confidence": 0.75,
+      "evidence": "Agent edited 3 files but never ran tests or any verification command."
+    }
+  ]
+}

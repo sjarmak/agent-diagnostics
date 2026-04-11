@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "premature_commit",
+      "confidence": 0.78,
+      "evidence": "Agent committed changes before running tests; tests failed post-commit."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "over_exploration",
+      "confidence": 0.9,
+      "evidence": "Agent made 247 tool calls reading 89 files but only 2 edits. Reward 0."
+    }
+  ]
+}

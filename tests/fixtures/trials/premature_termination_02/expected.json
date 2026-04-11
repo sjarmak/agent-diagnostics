@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "premature_termination",
+      "confidence": 0.7,
+      "evidence": "Agent made 2 tool calls then stopped; task was clearly incomplete."
+    }
+  ]
+}

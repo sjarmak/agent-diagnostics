@@ -8,6 +8,12 @@ __pycache__/
 .pytest_cache/
 htmlcov/
 
+# LLM annotation cache (generated at runtime)
+cache/
+
+# Gas City worker agent artifacts
+.gc/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db

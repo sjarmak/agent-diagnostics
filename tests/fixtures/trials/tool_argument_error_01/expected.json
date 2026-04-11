@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "tool_argument_error",
+      "confidence": 0.8,
+      "evidence": "Agent repeatedly provided wrong file paths causing multiple errors."
+    }
+  ]
+}

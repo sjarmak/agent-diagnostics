@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import pytest
 
+from pathlib import Path
+
 from agent_diagnostics.annotator import annotate_trial
 from agent_diagnostics.taxonomy import valid_category_names
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import CategoryAssignment, TrialSignals
+
+_V3_TAXONOMY = (
+    Path(__file__).parent.parent / "src" / "agent_diagnostics" / "taxonomy_v3.yaml"
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -185,7 +191,7 @@ class TestAllNamesValid:
         ],
     )
     def test_names_valid(self, signals: TrialSignals) -> None:
-        valid = valid_category_names()
+        valid = valid_category_names(_V3_TAXONOMY)
         results = annotate_trial(signals)
         for r in results:
             assert r.name in valid, f"{r.name} is not a valid taxonomy category"
@@ -308,6 +314,219 @@ class TestEmptySignals:
         results = annotate_trial({})  # type: ignore[typeddict-item]
         for r in results:
             assert isinstance(r, CategoryAssignment)
+
+
+class TestRewardHacking:
+    """AC: reward_hacking is a valid taxonomy category."""
+
+    def test_reward_hacking_in_taxonomy(self) -> None:
+        valid = valid_category_names(_V3_TAXONOMY)
+        assert "reward_hacking" in valid
+
+    def test_reward_hacking_not_detected_by_heuristic(self) -> None:
+        """reward_hacking requires LLM judgment, not heuristic detection."""
+        signals: TrialSignals = {"reward": 0.0, "passed": False}
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "reward_hacking" not in names
+
+
+class TestFabricatedSuccess:
+    """AC: fabricated_success is a valid taxonomy category."""
+
+    def test_fabricated_success_in_taxonomy(self) -> None:
+        valid = valid_category_names(_V3_TAXONOMY)
+        assert "fabricated_success" in valid
+
+    def test_fabricated_success_not_detected_by_heuristic(self) -> None:
+        """fabricated_success requires LLM judgment, not heuristic detection."""
+        signals: TrialSignals = {"reward": 1.0, "passed": True}
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "fabricated_success" not in names
+
+
+class TestHallucinatedApi:
+    """AC: hallucinated_api is a valid taxonomy category."""
+
+    def test_hallucinated_api_in_taxonomy(self) -> None:
+        valid = valid_category_names(_V3_TAXONOMY)
+        assert "hallucinated_api" in valid
+
+    def test_hallucinated_api_not_detected_by_heuristic(self) -> None:
+        """hallucinated_api requires LLM judgment, not heuristic detection."""
+        signals: TrialSignals = {"reward": 0.0, "passed": False}
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "hallucinated_api" not in names
+
+
+class TestToolArgumentError:
+    """AC: tool_argument_error detected when error_count is high relative to tool_calls_total."""
+
+    def test_tool_argument_error_high_error_ratio(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "error_count": 6,
+            "tool_calls_total": 10,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "tool_argument_error" in names
+
+    def test_tool_argument_error_not_triggered_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "error_count": 6,
+            "tool_calls_total": 10,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "tool_argument_error" not in names
+
+    def test_tool_argument_error_not_triggered_low_ratio(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "error_count": 1,
+            "tool_calls_total": 20,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "tool_argument_error" not in names
+
+    def test_tool_argument_error_evidence_present(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "error_count": 5,
+            "tool_calls_total": 10,
+        }
+        results = annotate_trial(signals)
+        tae = next(r for r in results if r.name == "tool_argument_error")
+        assert "error" in tae.evidence.lower()
+
+
+class TestPrematureTermination:
+    """AC: premature_termination detected when total_turns or trajectory_length is very low."""
+
+    def test_premature_termination_low_turns(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "total_turns": 1,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "premature_termination" in names
+
+    def test_premature_termination_low_trajectory_length(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "trajectory_length": 2,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "premature_termination" in names
+
+    def test_premature_termination_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "total_turns": 1,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "premature_termination" not in names
+
+    def test_premature_termination_not_normal_length(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "total_turns": 10,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "premature_termination" not in names
+
+    def test_premature_termination_confidence_single_turn(self) -> None:
+        signals_1: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "total_turns": 1,
+        }
+        signals_2: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "total_turns": 2,
+        }
+        r1 = annotate_trial(signals_1)
+        r2 = annotate_trial(signals_2)
+        pt1 = next(r for r in r1 if r.name == "premature_termination")
+        pt2 = next(r for r in r2 if r.name == "premature_termination")
+        assert pt1.confidence > pt2.confidence
+
+
+class TestVerificationSkipped:
+    """AC: verification_skipped detected when edits exist but no verify calls."""
+
+    def test_verification_skipped_edits_no_verify(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 3,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Edit"],
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "verification_skipped" in names
+
+    def test_verification_skipped_not_with_bash(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Bash"],
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "verification_skipped" not in names
+
+    def test_verification_skipped_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Edit", "Edit"],
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "verification_skipped" not in names
+
+    def test_verification_skipped_not_no_edits(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 0,
+            "tool_call_sequence": ["Read", "Grep"],
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "verification_skipped" not in names
+
+    def test_verification_skipped_evidence_present(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Edit", "Edit"],
+        }
+        results = annotate_trial(signals)
+        vs = next(r for r in results if r.name == "verification_skipped")
+        assert "edit" in vs.evidence.lower()
 
 
 class TestDefaultRegistryKwarg:

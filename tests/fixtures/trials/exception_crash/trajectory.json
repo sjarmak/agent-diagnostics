@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "ls"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/main.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ConnectionResetError"
+          }
+        ]
+      }
+    }
+  ]
+}

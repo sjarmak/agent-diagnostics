@@ -1,0 +1,78 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "models/user.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "def get_name(self): ..."
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "validators.py",
+            "old_string": "old",
+            "new_string": "new"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "models/user.py",
+            "old_string": "get_name",
+            "new_string": "get_full_name"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "models/user.py",
+            "old_string": "get_name",
+            "new_string": "get_username"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "error: get_name not found"
+          }
+        ]
+      }
+    }
+  ]
+}
