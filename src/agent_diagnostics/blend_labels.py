@@ -64,13 +64,19 @@ def blend(
             if metrics.get("f1", 0) >= heuristic_trust_threshold:
                 trusted_heuristic_cats.add(cat)
     else:
-        # Without calibration, trust high-confidence structural categories
+        # Without calibration, trust categories whose signal_dependencies
+        # are non-empty in the taxonomy (i.e. detectable from signals alone).
+        from agent_diagnostics.taxonomy import (
+            _extract_categories,
+            _package_data_path,
+            load_taxonomy,
+        )
+
+        _v3_tax = load_taxonomy(_package_data_path("taxonomy_v3.yaml"))
         trusted_heuristic_cats = {
-            "rate_limited_run",
-            "exception_crash",
-            "near_miss",
-            "over_exploration",
-            "edit_verify_loop_failure",
+            cat["name"]
+            for cat in _extract_categories(_v3_tax)
+            if cat.get("signal_dependencies")
         }
 
     # Index LLM annotations by trial_path

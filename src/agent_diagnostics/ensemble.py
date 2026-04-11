@@ -2,8 +2,8 @@
 classifier for learned categories.
 
 Tier 1 (heuristic): Structural categories that are deterministic
-    (exception_crash, rate_limited_run, near_miss, minimal_progress,
-    edit_verify_loop_failure). These have simple, reliable signal rules.
+    (exception_crash, rate_limited_run, edit_verify_loop_failure).
+    These have simple, reliable signal rules.
 
 Tier 2 (classifier): Categories with sufficient training data and F1 >= 0.7
     on the blended training set. Fast, runs on full corpus.
@@ -27,8 +27,6 @@ HEURISTIC_ONLY: frozenset[str] = frozenset(
     {
         "exception_crash",
         "rate_limited_run",
-        "near_miss",
-        "minimal_progress",
         "edit_verify_loop_failure",
     }
 )

@@ -255,11 +255,14 @@ class TestHeuristicOnly:
         expected = {
             "exception_crash",
             "rate_limited_run",
-            "near_miss",
-            "minimal_progress",
             "edit_verify_loop_failure",
         }
         assert HEURISTIC_ONLY == expected
+
+    def test_excludes_derived_signal_categories(self) -> None:
+        """near_miss and minimal_progress are derived_from_signal and must not be in HEURISTIC_ONLY."""
+        assert "near_miss" not in HEURISTIC_ONLY
+        assert "minimal_progress" not in HEURISTIC_ONLY
 
 
 # ---------------------------------------------------------------------------
