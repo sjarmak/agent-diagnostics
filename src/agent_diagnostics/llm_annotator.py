@@ -24,6 +24,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from agent_diagnostics.annotation_cache import (
+    DEFAULT_CACHE_DIR,
+    cache_key,
+    get_cached,
+    put_cached,
+)
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
 from agent_diagnostics.taxonomy import valid_category_names
 
@@ -354,6 +360,14 @@ def annotate_trial_claude_code(
     taxonomy = _taxonomy_yaml()
     prompt = build_prompt(instruction, truncated, signals, taxonomy)
     model_alias = _resolve_model_alias(model)
+
+    # Cache lookup
+    key = cache_key(prompt, model_alias)
+    cached = get_cached(DEFAULT_CACHE_DIR, key)
+    if cached is not None:
+        logger.debug("Cache hit for %s (key=%s)", trial_dir, key[:12])
+        return cached
+
     schema_str = json.dumps(_ANNOTATION_SCHEMA)
 
     try:
@@ -388,7 +402,9 @@ def annotate_trial_claude_code(
         categories = _parse_claude_response(envelope)
         if categories is None:
             return []
-        return validate_categories(categories, trial_dir)
+        validated = validate_categories(categories, trial_dir)
+        put_cached(DEFAULT_CACHE_DIR, key, validated)
+        return validated
 
     except subprocess.TimeoutExpired:
         logger.error("claude CLI timed out for %s", trial_dir)
@@ -536,31 +552,44 @@ def annotate_trial_api(
     prompt = build_prompt(instruction, truncated, signals, taxonomy)
     model_id = _resolve_model_api(model)
 
+    # Cache lookup
+    key = cache_key(prompt, model_id)
+    cached = get_cached(DEFAULT_CACHE_DIR, key)
+    if cached is not None:
+        logger.debug("Cache hit for %s (key=%s)", trial_dir, key[:12])
+        return cached
+
+    # Tool definition for structured output via tool-use
+    annotate_tool = {
+        "name": "annotate",
+        "description": "Return taxonomy category annotations for the trial.",
+        "input_schema": _ANNOTATION_SCHEMA,
+    }
+
     try:
         client = anthropic.Anthropic()
         message = client.messages.create(
             model=model_id,
             max_tokens=2048,
+            tools=[annotate_tool],
+            tool_choice={"type": "tool", "name": "annotate"},
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = message.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            lines = [line for line in lines if not line.strip().startswith("```")]
-            raw = "\n".join(lines).strip()
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            categories = parsed.get("categories", [])
-        elif isinstance(parsed, list):
-            categories = parsed
-        else:
+        # Extract categories from the tool_use content block
+        categories: list[dict] = []
+        for block in message.content:
+            if getattr(block, "type", None) == "tool_use" and block.name == "annotate":
+                tool_input = block.input
+                if isinstance(tool_input, dict):
+                    categories = tool_input.get("categories", [])
+                break
+
+        if not isinstance(categories, list):
             logger.warning("LLM returned unexpected type for %s", trial_dir)
             return []
-        return validate_categories(categories, trial_dir)
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to parse LLM JSON for %s: %s", trial_dir, exc)
-        return []
+        validated = validate_categories(categories, trial_dir)
+        put_cached(DEFAULT_CACHE_DIR, key, validated)
+        return validated
     except Exception as exc:
         logger.error("API error annotating %s: %s", trial_dir, exc)
         return []
