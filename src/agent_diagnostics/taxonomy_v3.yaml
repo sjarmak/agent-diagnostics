@@ -90,6 +90,22 @@ dimensions:
           - agent repeatedly retries the same tool with slight parameter variations
           - tool output is ignored or misinterpreted
 
+      - name: tool_argument_error
+        dimension: ToolUse
+        description: >-
+          The agent provided incorrect or malformed arguments to tools —
+          wrong file paths, invalid regex patterns, incorrect parameter types,
+          or arguments that don't match the tool's expected schema.
+        polarity: failure
+        severity: major
+        derived_from_signal: false
+        signal_dependencies:
+          - error_count
+        detection_hints:
+          - high error_count relative to tool_calls_total
+          - tool calls returning argument validation errors
+          - repeated retries with slightly different arguments
+
       - name: tool_underutilization
         dimension: ToolUse
         description: >-
@@ -390,6 +406,39 @@ dimensions:
           - test runner available but never invoked
           - agent made edits and declared success without verification
           - single test run showed failures but agent did not iterate
+
+      - name: premature_termination
+        dimension: Metacognition
+        description: >-
+          The agent stopped working before the task was complete without
+          explanation. The turn count is suspiciously low relative to task
+          complexity, and the reward indicates the task was not solved.
+        polarity: failure
+        severity: blocker
+        derived_from_signal: false
+        signal_dependencies:
+          - total_turns
+          - trajectory_length
+        detection_hints:
+          - very low total_turns (< 3) with reward < 1.0
+          - trajectory_length much shorter than expected for the task
+          - agent stopped without declaring completion or failure
+
+      - name: verification_skipped
+        dimension: Metacognition
+        description: >-
+          The agent made code changes but never verified them — no test
+          runs, no build checks, no manual verification steps of any kind.
+          The agent edited files but the tool call sequence contains no
+          evidence of verification activity.
+        polarity: failure
+        severity: major
+        derived_from_signal: false
+        signal_dependencies: []
+        detection_hints:
+          - edit_tool_calls > 0 but no test or build commands in tool_call_sequence
+          - no Bash tool calls following edits
+          - agent declared success without any verification step
 
       - name: error_misdiagnosis
         dimension: Metacognition

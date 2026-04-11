@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
+from importlib import resources
+from pathlib import Path
+
 from agent_diagnostics.taxonomy import valid_category_names
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import CategoryAssignment, TrialSignals
+
+_V3_TAXONOMY_PATH = Path(str(resources.files("agent_diagnostics") / "taxonomy_v3.yaml"))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -336,6 +341,76 @@ def _check_over_exploration(
     return None
 
 
+def _check_tool_argument_error(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    errors = _get(signals, "error_count", 0)
+    total = _get(signals, "tool_calls_total", 0)
+
+    if total > 0 and errors > 0:
+        error_ratio = errors / total
+        if error_ratio >= 0.3 and errors >= 3:
+            return _assignment(
+                "tool_argument_error",
+                min(0.9, 0.4 + error_ratio),
+                f"high error ratio: {errors} errors in {total} tool calls ({error_ratio:.0%})",
+            )
+    return None
+
+
+def _check_premature_termination(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    total_turns = _get(signals, "total_turns", None)
+    trajectory_length = _get(signals, "trajectory_length", None)
+
+    effective_length = total_turns if total_turns is not None else trajectory_length
+    if effective_length is not None and effective_length < 3:
+        confidence = 0.8 if effective_length <= 1 else 0.6
+        return _assignment(
+            "premature_termination",
+            confidence,
+            f"very short session ({effective_length} turns/steps) with reward={reward}",
+        )
+    return None
+
+
+def _check_verification_skipped(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    edits = _get(signals, "edit_tool_calls", 0)
+    if edits == 0:
+        return None
+
+    seq = _get(signals, "tool_call_sequence", [])
+    # Check if there are any verification-related calls after edits
+    verify_tools = frozenset({"Bash", "bash", "RunTests", "run_tests", "test"})
+    has_verify = any(t in verify_tools for t in seq)
+
+    if not has_verify:
+        return _assignment(
+            "verification_skipped",
+            0.7,
+            f"{edits} edit calls but no test/build/bash verification in tool sequence",
+        )
+    return None
+
+
 def _check_incomplete_solution(
     signals: TrialSignals,
     registry: ToolRegistry,
@@ -546,6 +621,9 @@ _ALL_CHECKERS = (
     _check_local_remote_mismatch,
     _check_verifier_mismatch,
     _check_over_exploration,
+    _check_tool_argument_error,
+    _check_premature_termination,
+    _check_verification_skipped,
     _check_incomplete_solution,
     _check_near_miss,
     _check_minimal_progress,
@@ -584,7 +662,7 @@ def annotate_trial(
     Returns:
         List of :class:`CategoryAssignment` instances with validated names.
     """
-    valid_names = valid_category_names()
+    valid_names = valid_category_names(_V3_TAXONOMY_PATH)
     results: list[CategoryAssignment] = []
 
     for checker in _ALL_CHECKERS:

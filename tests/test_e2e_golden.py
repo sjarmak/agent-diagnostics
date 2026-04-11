@@ -32,7 +32,10 @@ def test_e2e_golden_path(tmp_path: Path) -> None:
     assert len(annotations_raw) > 0, "Expected at least one category assignment"
 
     # All assigned names must be valid taxonomy categories
-    valid_names = valid_category_names()
+    from importlib import resources
+
+    _v3_path = Path(str(resources.files("agent_diagnostics") / "taxonomy_v3.yaml"))
+    valid_names = valid_category_names(_v3_path)
     for cat in annotations_raw:
         assert cat.name in valid_names, f"Unknown category: {cat.name}"
 

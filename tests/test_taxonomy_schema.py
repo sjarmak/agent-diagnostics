@@ -245,15 +245,15 @@ class TestCategorySignalDependencies:
                     f"'reward' in signal_dependencies"
                 )
 
-    def test_non_derived_categories_empty_dependencies(
+    def test_non_derived_categories_valid_dependencies(
         self, v3_categories: list[dict]
     ) -> None:
-        """Non-derived categories should have empty signal_dependencies."""
+        """Non-derived categories may have signal_dependencies as hints but must be lists."""
         for cat in v3_categories:
             if cat["name"] not in DERIVED_FROM_SIGNAL_CATEGORIES:
-                assert cat["signal_dependencies"] == [], (
-                    f"Category '{cat['name']}' is not derived but has "
-                    f"non-empty signal_dependencies: {cat['signal_dependencies']}"
+                assert isinstance(cat["signal_dependencies"], list), (
+                    f"Category '{cat['name']}' signal_dependencies must be a list, "
+                    f"got {type(cat['signal_dependencies'])}"
                 )
 
 

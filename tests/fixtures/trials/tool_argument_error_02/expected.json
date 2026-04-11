@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "tool_argument_error",
+      "confidence": 0.75,
+      "evidence": "Agent passed incorrect parameter types to multiple tool calls."
+    }
+  ]
+}

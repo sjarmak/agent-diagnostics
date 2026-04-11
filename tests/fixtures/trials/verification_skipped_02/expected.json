@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "verification_skipped",
+      "confidence": 0.7,
+      "evidence": "Agent made a single edit and stopped without verifying the change."
+    }
+  ]
+}

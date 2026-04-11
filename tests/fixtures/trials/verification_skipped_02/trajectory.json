@@ -1,0 +1,58 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Grep",
+          "arguments": {
+            "pattern": "bug_function",
+            "path": "src/"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/logic.py:5: def bug_function():"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/logic.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "def bug_function():\n    return None"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "src/logic.py",
+            "old_string": "return None",
+            "new_string": "return 42"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    }
+  ]
+}

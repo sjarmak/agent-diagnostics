@@ -41,7 +41,7 @@
       "src/agent_diagnostics/signals.py",
       "tests/test_signal_leakage.py"
     ],
-    "status": "pending",
+    "status": "landed",
     "branch": null,
     "pipeline_stage": null,
     "pipeline_output": {},
@@ -95,7 +95,7 @@
       "tests/test_llm_annotator_taxonomy_compat.py",
       "tests/test_taxonomy_schema.py"
     ],
-    "status": "pending",
+    "status": "landed",
     "branch": null,
     "pipeline_stage": null,
     "pipeline_output": {},

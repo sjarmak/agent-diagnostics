@@ -1,0 +1,21 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/main.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "def main(): pass"
+          }
+        ]
+      }
+    }
+  ]
+}

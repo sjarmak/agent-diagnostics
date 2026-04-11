@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "hallucinated_api",
+      "confidence": 0.85,
+      "evidence": "Agent used a method signature that does not exist on the class."
+    }
+  ]
+}

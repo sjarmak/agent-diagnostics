@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "hallucinated_api",
+      "confidence": 0.9,
+      "evidence": "Agent called a nonexistent library function that does not exist in the codebase."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "premature_termination",
+      "confidence": 0.85,
+      "evidence": "Agent stopped after only 1 turn without completing the task."
+    }
+  ]
+}
