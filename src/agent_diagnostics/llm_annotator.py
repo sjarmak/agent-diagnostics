@@ -32,6 +32,12 @@ from agent_diagnostics.annotation_cache import (
 )
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
 from agent_diagnostics.taxonomy import valid_category_names
+from agent_diagnostics.types import (
+    AnnotationError,
+    AnnotationNoCategoriesFound,
+    AnnotationOk,
+    AnnotationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +291,30 @@ def validate_categories(categories: list, trial_dir: str | Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# AnnotationResult helpers (internal use — unwrapped at module boundary)
+# ---------------------------------------------------------------------------
+
+
+def _to_annotation_result(categories: list[dict]) -> AnnotationResult:
+    """Wrap a validated category list into the appropriate AnnotationResult variant."""
+    if categories:
+        return AnnotationOk(categories=tuple(categories))
+    return AnnotationNoCategoriesFound()
+
+
+def _unwrap_result(result: AnnotationResult) -> list[dict]:
+    """Convert an AnnotationResult back to ``list[dict]`` for the public API boundary."""
+    if isinstance(result, AnnotationOk):
+        return list(result.categories)
+    return []
+
+
+def _is_error(result: AnnotationResult) -> bool:
+    """Return ``True`` if *result* represents a failed annotation."""
+    return isinstance(result, AnnotationError)
+
+
+# ---------------------------------------------------------------------------
 # Shared response parsing (used by both claude-code backends)
 # ---------------------------------------------------------------------------
 
@@ -371,7 +401,7 @@ def annotate_trial_claude_code(
     schema_str = json.dumps(_ANNOTATION_SCHEMA)
 
     try:
-        result = subprocess.run(
+        proc_result = subprocess.run(
             [
                 claude_bin,
                 "-p",
@@ -389,32 +419,40 @@ def annotate_trial_claude_code(
             timeout=120,
         )
 
-        if result.returncode != 0:
+        if proc_result.returncode != 0:
             logger.error(
                 "claude CLI failed for %s (rc=%d): %s",
                 trial_dir,
-                result.returncode,
-                result.stderr[:500],
+                proc_result.returncode,
+                proc_result.stderr[:500],
             )
-            return []
+            annotation: AnnotationResult = AnnotationError(
+                reason=f"claude CLI rc={proc_result.returncode}"
+            )
+            return _unwrap_result(annotation)
 
-        envelope = json.loads(result.stdout)
+        envelope = json.loads(proc_result.stdout)
         categories = _parse_claude_response(envelope)
         if categories is None:
-            return []
+            annotation = AnnotationError(reason="Failed to parse claude response")
+            return _unwrap_result(annotation)
         validated = validate_categories(categories, trial_dir)
-        put_cached(DEFAULT_CACHE_DIR, key, validated)
-        return validated
+        annotation = _to_annotation_result(validated)
+        put_cached(DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation))
+        return _unwrap_result(annotation)
 
     except subprocess.TimeoutExpired:
         logger.error("claude CLI timed out for %s", trial_dir)
-        return []
+        annotation = AnnotationError(reason="claude CLI timed out")
+        return _unwrap_result(annotation)
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse claude CLI output for %s: %s", trial_dir, exc)
-        return []
+        annotation = AnnotationError(reason=f"JSON decode error: {exc}")
+        return _unwrap_result(annotation)
     except Exception as exc:
         logger.error("Error running claude CLI for %s: %s", trial_dir, exc)
-        return []
+        annotation = AnnotationError(reason=f"Unexpected error: {exc}")
+        return _unwrap_result(annotation)
 
 
 async def _annotate_one_claude_code(
@@ -568,7 +606,7 @@ def annotate_trial_api(
 
     try:
         client = anthropic.Anthropic()
-        message = client.messages.create(
+        message = client.messages.create(  # type: ignore[call-overload]
             model=model_id,
             max_tokens=2048,
             tools=[annotate_tool],
@@ -586,13 +624,18 @@ def annotate_trial_api(
 
         if not isinstance(categories, list):
             logger.warning("LLM returned unexpected type for %s", trial_dir)
-            return []
+            annotation: AnnotationResult = AnnotationError(
+                reason="LLM returned unexpected type"
+            )
+            return _unwrap_result(annotation)
         validated = validate_categories(categories, trial_dir)
-        put_cached(DEFAULT_CACHE_DIR, key, validated)
-        return validated
+        annotation = _to_annotation_result(validated)
+        put_cached(DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation))
+        return _unwrap_result(annotation)
     except Exception as exc:
         logger.error("API error annotating %s: %s", trial_dir, exc)
-        return []
+        annotation = AnnotationError(reason=f"API error: {exc}")
+        return _unwrap_result(annotation)
 
 
 def annotate_batch_api(

@@ -55,11 +55,19 @@ def put_cached(
     cache_dir: Path,
     key: str,
     categories: list[dict[str, Any]],
+    *,
+    is_error: bool = False,
 ) -> None:
     """Write *categories* to ``{cache_dir}/{key}.json``.
 
     Creates the cache directory tree if it does not exist.
+
+    When *is_error* is ``True`` the result is **not** cached — error
+    responses should never be persisted so that retries can succeed.
     """
+    if is_error:
+        logger.debug("Skipping cache write for error result (key=%s)", key[:12])
+        return
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / f"{key}.json"
     path.write_text(json.dumps(categories, indent=1))

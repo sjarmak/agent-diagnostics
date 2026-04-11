@@ -179,7 +179,7 @@
       "tests/test_backend_parity.py",
       "tests/test_backend_model_parity.py"
     ],
-    "status": "pending",
+    "status": "landed",
     "branch": null,
     "pipeline_stage": null,
     "pipeline_output": {},
