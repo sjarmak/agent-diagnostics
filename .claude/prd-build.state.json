@@ -1,5 +1,5 @@
 {
-  "status": "executing",
+  "status": "done",
   "prd_path": "prd_agent_diagnostics_testing_quality.md",
   "max_passes": 3,
   "max_parallel": 5,
