@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "incomplete_solution",
+      "confidence": 0.8,
+      "evidence": "Agent fixed quoted fields but missed escaped commas and multiline values."
+    }
+  ]
+}

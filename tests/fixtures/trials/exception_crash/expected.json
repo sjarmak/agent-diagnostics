@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "exception_crash",
+      "confidence": 0.97,
+      "evidence": "Agent crashed after 12 seconds with ConnectionResetError from MCP server."
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/bug.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "def broken(): return None"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "src/bug.py",
+            "old_string": "return None",
+            "new_string": "return 42"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "pytest"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "all 10 passed"
+          }
+        ]
+      }
+    }
+  ]
+}

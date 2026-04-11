@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "decomposition_failure",
+      "confidence": 0.86,
+      "evidence": "Agent edited API handler before updating the database schema."
+    }
+  ]
+}

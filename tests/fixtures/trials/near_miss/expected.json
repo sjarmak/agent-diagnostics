@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "near_miss",
+      "confidence": 0.83,
+      "evidence": "Agent passed 8 of 10 tests; forgot useEffect cleanup function. Reward 0.8."
+    }
+  ]
+}

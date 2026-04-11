@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "wrong_tool_choice",
+      "confidence": 0.88,
+      "evidence": "Agent used grep 14 times instead of find_references for cross-file analysis."
+    }
+  ]
+}

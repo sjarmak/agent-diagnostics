@@ -1,0 +1,9 @@
+{
+  "categories": [
+    {
+      "name": "rate_limited_run",
+      "confidence": 0.95,
+      "evidence": "Agent completed in 8 seconds with 0 reward and only 2 tool calls."
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "ls"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "src/ tests/"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Read",
+          "arguments": {
+            "file_path": "src/main.py"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "rate_limit_exceeded"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "csv_parser.py",
+            "old_string": "old",
+            "new_string": "new"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "pytest"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "2 passed, 3 failed"
+          }
+        ]
+      }
+    }
+  ]
+}

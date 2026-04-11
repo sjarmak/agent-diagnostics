@@ -1,0 +1,57 @@
+{
+  "steps": [
+    {
+      "tool_calls": [
+        {
+          "function_name": "Edit",
+          "arguments": {
+            "file_path": "src/feature.py",
+            "old_string": "old",
+            "new_string": "new"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "ok"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "git add -A && git commit -m \"add feature\""
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "committed"
+          }
+        ]
+      }
+    },
+    {
+      "tool_calls": [
+        {
+          "function_name": "Bash",
+          "arguments": {
+            "command": "pytest"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "content": "3 failed, 2 passed"
+          }
+        ]
+      }
+    }
+  ]
+}
