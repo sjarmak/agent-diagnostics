@@ -733,30 +733,42 @@ class TestAnnotateTrialClaudeCode:
 class TestAnnotateTrialApi:
     """Tests for the annotate_trial_api SDK backend."""
 
+    def _mock_tool_use_message(self, tool_input: dict) -> mock.MagicMock:
+        """Create a mock Anthropic message with a tool_use content block."""
+        content_block = mock.MagicMock()
+        content_block.type = "tool_use"
+        content_block.name = "annotate"
+        content_block.input = tool_input
+        message = mock.MagicMock()
+        message.content = [content_block]
+        return message
+
     def _mock_message(self, text: str) -> mock.MagicMock:
         """Create a mock Anthropic message with the given text content."""
         content_block = mock.MagicMock()
         content_block.text = text
+        content_block.type = "text"
+        content_block.name = None
         message = mock.MagicMock()
         message.content = [content_block]
         return message
 
     def test_success(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
-        response_text = json.dumps(
-            {
-                "categories": [
-                    {
-                        "name": "retrieval_failure",
-                        "confidence": 0.9,
-                        "evidence": "Agent failed to find file",
-                    }
-                ]
-            }
-        )
+        tool_input = {
+            "categories": [
+                {
+                    "name": "retrieval_failure",
+                    "confidence": 0.9,
+                    "evidence": "Agent failed to find file",
+                }
+            ]
+        }
 
         mock_client = mock.MagicMock()
-        mock_client.messages.create.return_value = self._mock_message(response_text)
+        mock_client.messages.create.return_value = self._mock_tool_use_message(
+            tool_input
+        )
 
         mock_anthropic = mock.MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
