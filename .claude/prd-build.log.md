@@ -1,4 +1,20 @@
-# PRD Build Log: Testing & Quality Improvement
+# PRD Build Log: Behavioral Taxonomy & Annotation Improvements
+
+## 2026-04-11T00:00:00Z — Decomposition complete — 9 units across 5 layers
+
+| Layer | Units                                                                       |
+| ----- | --------------------------------------------------------------------------- |
+| 0     | unit-redaction-constants, unit-fake-backend-fixtures                        |
+| 1     | unit-signal-redaction, unit-taxonomy-v3                                     |
+| 2     | unit-classifier-blend-ensemble, unit-prompt-quarantine, unit-new-categories |
+| 3     | unit-annotation-cache                                                       |
+| 4     | unit-annotation-result-type                                                 |
+
+Baseline: 377 tests, 91% coverage.
+
+---
+
+# PRD Build Log (previous): Testing & Quality Improvement
 
 ## 2026-04-05T00:00:00Z — Decomposition complete — 8 units across 4 layers
 
