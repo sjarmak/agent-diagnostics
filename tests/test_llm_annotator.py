@@ -122,9 +122,9 @@ class TestBuildPrompt:
         assert "Read" in prompt
 
     def test_contains_signals_section(self) -> None:
-        prompt = build_prompt("task", [], {"reward": 0.5}, "tax: y")
+        prompt = build_prompt("task", [], {"total_turns": 42}, "tax: y")
         assert "## Extracted signals" in prompt
-        assert "0.5" in prompt
+        assert "42" in prompt
 
     def test_contains_instructions_section(self) -> None:
         prompt = build_prompt("task", [], {}, "tax: y")
@@ -137,6 +137,23 @@ class TestBuildPrompt:
     def test_no_trajectory_shows_placeholder(self) -> None:
         prompt = build_prompt("task", [], {}, "tax: y")
         assert "(no trajectory available)" in prompt
+
+    def test_filters_redacted_signal_fields(self) -> None:
+        prompt = build_prompt(
+            "task",
+            [],
+            {
+                "reward": 0.99,
+                "passed": True,
+                "exception_info": "traceback...",
+                "total_turns": 15,
+            },
+            "tax: y",
+        )
+        assert "total_turns" in prompt
+        assert "reward" not in prompt
+        assert "passed" not in prompt
+        assert "exception_info" not in prompt
 
     def test_filters_tool_calls_by_name(self) -> None:
         prompt = build_prompt(

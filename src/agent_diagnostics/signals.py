@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS  # noqa: F401
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import TrialSignals
 

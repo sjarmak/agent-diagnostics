@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
 from agent_diagnostics.taxonomy import load_taxonomy
 
 logger = logging.getLogger(__name__)
@@ -220,10 +221,9 @@ def build_prompt(
         parts.append("(no trajectory available)\n")
 
     parts.append("## Extracted signals\n")
+    _excluded = frozenset({"tool_calls_by_name", "trial_path"}) | REDACTED_SIGNAL_FIELDS
     filtered = {
-        k: v
-        for k, v in signals.items()
-        if k not in ("tool_calls_by_name", "trial_path") and v is not None
+        k: v for k, v in signals.items() if k not in _excluded and v is not None
     }
     parts.append(f"```json\n{json.dumps(filtered, indent=1, default=str)}\n```\n")
 
