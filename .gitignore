@@ -8,6 +8,9 @@ __pycache__/
 .pytest_cache/
 htmlcov/
 
+# LLM annotation cache (generated at runtime)
+cache/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
