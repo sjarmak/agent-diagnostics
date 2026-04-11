@@ -231,7 +231,7 @@
       "tests/test_annotation_result.py",
       "pyproject.toml"
     ],
-    "status": "pending",
+    "status": "landed",
     "branch": null,
     "pipeline_stage": null,
     "pipeline_output": {},
