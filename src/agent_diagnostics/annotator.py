@@ -411,6 +411,189 @@ def _check_verification_skipped(
     return None
 
 
+def _check_premature_commit(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent made edits but never ran verification before finishing."""
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    edits = _get(signals, "edit_tool_calls", 0)
+    if edits == 0:
+        return None
+
+    seq = _get(signals, "tool_call_sequence", [])
+    if not seq:
+        return None
+
+    # Find last edit position
+    edit_tools = frozenset({"Edit", "edit", "Write", "write", "NotebookEdit"})
+    last_edit_idx = -1
+    for i, t in enumerate(seq):
+        if t in edit_tools:
+            last_edit_idx = i
+
+    if last_edit_idx < 0:
+        return None
+
+    # Check if any verification happened AFTER the last edit
+    verify_tools = frozenset({"Bash", "bash", "RunTests", "run_tests", "test"})
+    has_verify_after = any(t in verify_tools for t in seq[last_edit_idx + 1 :])
+
+    if not has_verify_after:
+        return _assignment(
+            "premature_commit",
+            0.6,
+            f"{edits} edits but no verification after last edit (pos {last_edit_idx}/{len(seq)})",
+        )
+    return None
+
+
+def _check_planning_absence(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent dove into editing without any exploration first."""
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    seq = _get(signals, "tool_call_sequence", [])
+    if len(seq) < 3:
+        return None
+
+    edit_tools = frozenset({"Edit", "edit", "Write", "write", "NotebookEdit"})
+    explore_tools = (
+        frozenset({"Read", "read", "Grep", "grep", "Glob", "glob", "Bash", "bash"})
+        | registry.search_tools
+        | registry.code_nav_tools
+    )
+
+    # Check if first meaningful action is an edit (no exploration before it)
+    for t in seq[:3]:
+        if t in explore_tools:
+            return None
+        if t in edit_tools:
+            return _assignment(
+                "planning_absence",
+                0.6,
+                f"first tool calls include edit ({t}) before any exploration",
+            )
+    return None
+
+
+def _check_verification_skip(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent ran verification once, saw failure, but didn't retry.
+
+    Distinct from verification_skipped (never verified at all).
+    """
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    edits = _get(signals, "edit_tool_calls", 0)
+    if edits == 0:
+        return None
+
+    seq = _get(signals, "tool_call_sequence", [])
+    verify_tools = frozenset({"Bash", "bash", "RunTests", "run_tests", "test"})
+    verify_count = sum(1 for t in seq if t in verify_tools)
+
+    # Exactly 1 verify call + failure (reward < 1) = tried once, gave up
+    if verify_count == 1 and edits >= 2:
+        return _assignment(
+            "verification_skip",
+            0.5,
+            f"single verification call with {edits} edits — stopped after first check",
+        )
+    return None
+
+
+def _check_tool_underutilization(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent had powerful tools available but relied on manual exploration."""
+    reward = _get(signals, "reward", None)
+    if reward is not None and reward >= 1.0:
+        return None
+
+    code_nav = _get(signals, "code_nav_tool_calls", 0)
+    sem_search = _get(signals, "semantic_search_tool_calls", 0)
+    files_read = _get(signals, "unique_files_read", 0)
+    search = _get(signals, "search_tool_calls", 0)
+
+    # Many manual reads, no use of structured navigation tools
+    if files_read >= 8 and code_nav == 0 and sem_search == 0 and search <= 2:
+        return _assignment(
+            "tool_underutilization",
+            0.5,
+            f"read {files_read} files with only {search} searches, "
+            f"no code nav or semantic search",
+        )
+    return None
+
+
+def _check_reward_hacking(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent modified test files to make tests pass (low confidence from signals)."""
+    reward = _get(signals, "reward", None)
+    if reward is None or reward <= 0.0:
+        return None
+
+    edited = _get(signals, "files_edited_list", [])
+    if not edited:
+        return None
+
+    test_edits = [
+        f
+        for f in edited
+        if any(
+            marker in f.lower()
+            for marker in ("test_", "_test.", "tests/", "test/", "spec/", "_spec.")
+        )
+    ]
+
+    if test_edits and len(test_edits) >= len(edited) // 2:
+        return _assignment(
+            "reward_hacking",
+            0.4,
+            f"reward={reward} but {len(test_edits)}/{len(edited)} edited files are tests: "
+            + ", ".join(test_edits[:3]),
+        )
+    return None
+
+
+def _check_clean_success(
+    signals: TrialSignals,
+    registry: ToolRegistry,
+) -> Optional[CategoryAssignment]:
+    """Agent solved task efficiently: full reward, low tool calls, no errors."""
+    reward = _get(signals, "reward", None)
+    passed = _get(signals, "passed", False)
+    if not (reward is not None and reward >= 1.0) and not passed:
+        return None
+
+    total = _get(signals, "tool_calls_total", 0)
+    errors = _get(signals, "error_count", 0)
+    retry = _get(signals, "retry_count", 0)
+
+    if total <= 20 and errors <= 1 and retry <= 1:
+        return _assignment(
+            "clean_success",
+            min(0.9, 0.7 + (20 - total) * 0.01),
+            f"efficient success: {total} tool calls, {errors} errors, {retry} retries",
+        )
+    return None
+
+
 def _check_incomplete_solution(
     signals: TrialSignals,
     registry: ToolRegistry,
@@ -624,6 +807,11 @@ _ALL_CHECKERS = (
     _check_tool_argument_error,
     _check_premature_termination,
     _check_verification_skipped,
+    _check_verification_skip,
+    _check_premature_commit,
+    _check_planning_absence,
+    _check_tool_underutilization,
+    _check_reward_hacking,
     _check_incomplete_solution,
     _check_near_miss,
     _check_minimal_progress,
@@ -633,6 +821,7 @@ _ALL_CHECKERS = (
     _check_success_via_local_exec,
     _check_success_via_commit_context,
     _check_success_via_decomposition,
+    _check_clean_success,
     # Neutral (post-success)
     _check_insufficient_provenance,
 )
@@ -650,7 +839,7 @@ def annotate_trial(
 ) -> list[CategoryAssignment]:
     """Apply heuristic rules to *signals* and return matching taxonomy categories.
 
-    Each of the 23 taxonomy categories has a dedicated heuristic. Multiple
+    Each of the 32 signal-derivable taxonomy categories has a dedicated heuristic. Multiple
     categories can be returned when multiple patterns match. Results are sorted
     by confidence (descending).
 

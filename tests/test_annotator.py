@@ -529,6 +529,260 @@ class TestVerificationSkipped:
         assert "edit" in vs.evidence.lower()
 
 
+class TestCleanSuccess:
+    """AC: clean_success when reward=1, low tool calls, few errors."""
+
+    def test_clean_success_basic(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "tool_calls_total": 10,
+            "error_count": 0,
+            "retry_count": 0,
+        }
+        results = annotate_trial(signals)
+        assert "clean_success" in _names(results)
+
+    def test_clean_success_not_on_failure(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "tool_calls_total": 10,
+            "error_count": 0,
+            "retry_count": 0,
+        }
+        results = annotate_trial(signals)
+        assert "clean_success" not in _names(results)
+
+    def test_clean_success_not_high_tool_calls(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "tool_calls_total": 50,
+            "error_count": 0,
+            "retry_count": 0,
+        }
+        results = annotate_trial(signals)
+        assert "clean_success" not in _names(results)
+
+    def test_clean_success_not_many_errors(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "tool_calls_total": 15,
+            "error_count": 5,
+            "retry_count": 0,
+        }
+        results = annotate_trial(signals)
+        assert "clean_success" not in _names(results)
+
+
+class TestPlanningAbsence:
+    """AC: planning_absence when first tool calls are edits with no exploration."""
+
+    def test_planning_absence_edit_first(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "tool_call_sequence": ["Edit", "Edit", "Bash", "Read"],
+        }
+        results = annotate_trial(signals)
+        assert "planning_absence" in _names(results)
+
+    def test_planning_absence_not_when_read_first(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Bash"],
+        }
+        results = annotate_trial(signals)
+        assert "planning_absence" not in _names(results)
+
+    def test_planning_absence_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "tool_call_sequence": ["Edit", "Edit", "Bash", "Read"],
+        }
+        results = annotate_trial(signals)
+        assert "planning_absence" not in _names(results)
+
+    def test_planning_absence_not_short_sequence(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "tool_call_sequence": ["Edit"],
+        }
+        results = annotate_trial(signals)
+        assert "planning_absence" not in _names(results)
+
+
+class TestPrematureCommit:
+    """AC: premature_commit when edits exist but no verification after last edit."""
+
+    def test_premature_commit_no_verify_after_edit(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Grep", "Edit", "Edit"],
+        }
+        results = annotate_trial(signals)
+        assert "premature_commit" in _names(results)
+
+    def test_premature_commit_not_when_bash_after(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Bash"],
+        }
+        results = annotate_trial(signals)
+        assert "premature_commit" not in _names(results)
+
+    def test_premature_commit_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "edit_tool_calls": 2,
+            "tool_call_sequence": ["Read", "Edit", "Edit"],
+        }
+        results = annotate_trial(signals)
+        assert "premature_commit" not in _names(results)
+
+
+class TestVerificationSkip:
+    """AC: verification_skip when exactly 1 verify call but multiple edits and failure."""
+
+    def test_verification_skip_single_bash(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 3,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Bash", "Edit"],
+        }
+        results = annotate_trial(signals)
+        assert "verification_skip" in _names(results)
+
+    def test_verification_skip_not_multiple_bash(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "edit_tool_calls": 3,
+            "tool_call_sequence": ["Read", "Edit", "Bash", "Edit", "Bash"],
+        }
+        results = annotate_trial(signals)
+        assert "verification_skip" not in _names(results)
+
+    def test_verification_skip_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "edit_tool_calls": 3,
+            "tool_call_sequence": ["Read", "Edit", "Edit", "Bash", "Edit"],
+        }
+        results = annotate_trial(signals)
+        assert "verification_skip" not in _names(results)
+
+
+class TestToolUnderutilization:
+    """AC: tool_underutilization when many file reads but no nav/semantic tools."""
+
+    def test_tool_underutilization_basic(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "unique_files_read": 12,
+            "code_nav_tool_calls": 0,
+            "semantic_search_tool_calls": 0,
+            "search_tool_calls": 1,
+        }
+        results = annotate_trial(signals)
+        assert "tool_underutilization" in _names(results)
+
+    def test_tool_underutilization_not_with_code_nav(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "unique_files_read": 12,
+            "code_nav_tool_calls": 2,
+            "semantic_search_tool_calls": 0,
+            "search_tool_calls": 1,
+        }
+        results = annotate_trial(signals)
+        assert "tool_underutilization" not in _names(results)
+
+    def test_tool_underutilization_not_few_reads(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "unique_files_read": 3,
+            "code_nav_tool_calls": 0,
+            "semantic_search_tool_calls": 0,
+            "search_tool_calls": 0,
+        }
+        results = annotate_trial(signals)
+        assert "tool_underutilization" not in _names(results)
+
+    def test_tool_underutilization_not_on_success(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "unique_files_read": 12,
+            "code_nav_tool_calls": 0,
+            "semantic_search_tool_calls": 0,
+            "search_tool_calls": 1,
+        }
+        results = annotate_trial(signals)
+        assert "tool_underutilization" not in _names(results)
+
+
+class TestRewardHacking:
+    """AC: reward_hacking when test files dominate the edited files list."""
+
+    def test_reward_hacking_mostly_test_edits(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.8,
+            "passed": True,
+            "files_edited_list": ["tests/test_foo.py", "tests/test_bar.py"],
+        }
+        results = annotate_trial(signals)
+        assert "reward_hacking" in _names(results)
+
+    def test_reward_hacking_not_zero_reward(self) -> None:
+        signals: TrialSignals = {
+            "reward": 0.0,
+            "passed": False,
+            "files_edited_list": ["tests/test_foo.py"],
+        }
+        results = annotate_trial(signals)
+        assert "reward_hacking" not in _names(results)
+
+    def test_reward_hacking_not_when_mostly_source(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "files_edited_list": [
+                "src/main.py",
+                "src/utils.py",
+                "src/api.py",
+                "tests/test_main.py",
+            ],
+        }
+        results = annotate_trial(signals)
+        assert "reward_hacking" not in _names(results)
+
+    def test_reward_hacking_evidence_lists_files(self) -> None:
+        signals: TrialSignals = {
+            "reward": 1.0,
+            "passed": True,
+            "files_edited_list": ["tests/test_foo.py", "tests/test_bar.py"],
+        }
+        results = annotate_trial(signals)
+        rh = next(r for r in results if r.name == "reward_hacking")
+        assert "test_foo" in rh.evidence
+
+
 class TestDefaultRegistryKwarg:
     def test_default_registry_used(self) -> None:
         signals: TrialSignals = {
