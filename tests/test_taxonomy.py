@@ -39,31 +39,48 @@ class TestPackageDataResolution:
         assert data["$id"] == "observatory-annotation-v1"
 
 
-class TestTaxonomyV1:
-    """Tests for v1 format taxonomy."""
+class TestTaxonomyDefault:
+    """Tests for the default (v3) taxonomy loaded by load_taxonomy()."""
 
     def test_load_default_taxonomy(self) -> None:
         taxonomy = load_taxonomy()
+        assert taxonomy.get("version", "").startswith("3.")
+        assert "dimensions" in taxonomy
+
+    def test_default_is_v2_structured(self) -> None:
+        taxonomy = load_taxonomy()
+        assert _is_v2(taxonomy)
+
+
+class TestTaxonomyV1:
+    """Tests for v1 format taxonomy (loaded by explicit path)."""
+
+    @staticmethod
+    def _load_v1() -> dict:
+        return load_taxonomy(_package_data_path("taxonomy_v1.yaml"))
+
+    def test_load_v1(self) -> None:
+        taxonomy = self._load_v1()
         assert "version" in taxonomy
         assert "categories" in taxonomy
 
     def test_v1_has_23_categories(self) -> None:
-        taxonomy = load_taxonomy()
+        taxonomy = self._load_v1()
         assert len(taxonomy["categories"]) == 23
 
     def test_v1_is_not_v2(self) -> None:
-        taxonomy = load_taxonomy()
+        taxonomy = self._load_v1()
         assert not _is_v2(taxonomy)
 
     def test_v1_category_required_fields(self) -> None:
-        taxonomy = load_taxonomy()
+        taxonomy = self._load_v1()
         required = {"name", "description", "polarity"}
         for cat in taxonomy["categories"]:
             missing = required - set(cat.keys())
             assert not missing, f"Category {cat.get('name', '?')} missing: {missing}"
 
     def test_v1_polarities(self) -> None:
-        taxonomy = load_taxonomy()
+        taxonomy = self._load_v1()
         valid_polarities = {"failure", "success", "neutral"}
         for cat in taxonomy["categories"]:
             assert (
@@ -71,7 +88,7 @@ class TestTaxonomyV1:
             ), f"{cat['name']} has invalid polarity: {cat['polarity']}"
 
     def test_v1_polarity_counts(self) -> None:
-        taxonomy = load_taxonomy()
+        taxonomy = self._load_v1()
         counts: dict[str, int] = {}
         for cat in taxonomy["categories"]:
             counts[cat["polarity"]] = counts.get(cat["polarity"], 0) + 1
@@ -90,7 +107,7 @@ class TestTaxonomyV2:
         assert "dimensions" in taxonomy
 
     def test_v2_extract_categories_matches_v1(self) -> None:
-        v1 = load_taxonomy()
+        v1 = load_taxonomy(_package_data_path("taxonomy_v1.yaml"))
         path_v2 = _package_data_path("taxonomy_v2.yaml")
         v2 = load_taxonomy(path_v2)
         v1_names = {cat["name"] for cat in v1["categories"]}
@@ -114,7 +131,8 @@ class TestValidCategoryNames:
     def test_returns_set(self) -> None:
         names = valid_category_names()
         assert isinstance(names, set)
-        assert len(names) == 23
+        # v3 taxonomy has 40 categories across 11 dimensions.
+        assert len(names) == 40
 
     def test_known_categories_present(self) -> None:
         names = valid_category_names()

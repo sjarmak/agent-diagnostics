@@ -397,6 +397,38 @@ class TestTaxonomyResolution:
         source = inspect.getsource(llm_annotator._taxonomy_yaml)
         assert "taxonomy_v1.yaml" not in source
 
+    def test_taxonomy_yaml_returns_v3(self) -> None:
+        """_taxonomy_yaml must return the v3 taxonomy so LLM prompts use v3.
+
+        Prevents regression where the default TAXONOMY_FILENAME gets flipped
+        back to v1/v2, silently causing LLM annotation passes to label under
+        the wrong schema (the shape of the bug that produced the Haiku
+        training_500.json v1-labeled corpus).
+        """
+        import yaml
+
+        from agent_diagnostics.taxonomy import (
+            _package_data_path,
+            valid_category_names,
+        )
+
+        rendered = llm_annotator._taxonomy_yaml()
+        parsed = yaml.safe_load(rendered)
+
+        assert parsed.get("version", "").startswith(
+            "3."
+        ), f"Expected v3 taxonomy in LLM prompt, got version={parsed.get('version')!r}"
+        assert "dimensions" in parsed, "Expected v3 structure with 'dimensions' key"
+
+        prompt_names = {
+            c["name"] for d in parsed["dimensions"] for c in d.get("categories", [])
+        }
+        v3_names = valid_category_names(_package_data_path("taxonomy_v3.yaml"))
+        assert prompt_names == v3_names, (
+            f"LLM prompt taxonomy does not match v3 taxonomy. "
+            f"Missing: {v3_names - prompt_names}. Extra: {prompt_names - v3_names}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # _parse_claude_response contract tests

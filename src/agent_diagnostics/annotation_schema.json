@@ -30,6 +30,36 @@
       "items": {
         "$ref": "#/$defs/annotation"
       }
+    },
+    "blend_metadata": {
+      "type": "object",
+      "description": "Metadata emitted by the blended annotator (source mix, trust thresholds, trusted-heuristic categories, etc.).",
+      "additionalProperties": true
+    },
+    "migration": {
+      "type": "array",
+      "description": "Audit trail of taxonomy-version migrations applied to this file.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Source taxonomy version."
+          },
+          "to": { "type": "string", "description": "Target taxonomy version." },
+          "tool": {
+            "type": "string",
+            "description": "Migration tool identifier."
+          },
+          "applied_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when migration ran."
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false,
@@ -117,6 +147,17 @@
         "evidence": {
           "type": "string",
           "description": "Pointer to trace step, tool call, or transcript line supporting the assignment."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "heuristic",
+            "heuristic_trusted",
+            "classifier",
+            "manual"
+          ],
+          "description": "Provenance of this category assignment. Set by the blended annotator to record which upstream producer emitted the label."
         },
         "calibration_status": {
           "type": "string",

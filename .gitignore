@@ -11,6 +11,9 @@ htmlcov/
 # LLM annotation cache (generated at runtime)
 cache/
 
+# Generated label corpora and training data (rebuildable via scripts)
+data/
+
 # Gas City worker agent artifacts
 .gc/
 

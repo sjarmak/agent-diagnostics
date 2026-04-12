@@ -6,7 +6,7 @@ from typing import Optional, Set, Union
 
 import yaml
 
-TAXONOMY_FILENAME = "taxonomy_v1.yaml"
+TAXONOMY_FILENAME = "taxonomy_v3.yaml"
 
 _cached_taxonomy: Optional[dict] = None
 _cached_path: Optional[Path] = None
@@ -57,7 +57,7 @@ def load_taxonomy(path: Optional[Union[str, Path]] = None) -> dict:
     (hierarchical 'dimensions' with nested categories).
 
     Args:
-        path: Path to taxonomy YAML file. Defaults to taxonomy_v1.yaml
+        path: Path to taxonomy YAML file. Defaults to taxonomy_v3.yaml
               shipped with the package.
 
     Returns:
