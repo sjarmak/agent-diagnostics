@@ -355,9 +355,10 @@ def extract_signals(
     # --- Load files ---
     result_path = trial_dir / "result.json"
     traj_path = trial_dir / "trajectory.json"
+    traj_path_nested = trial_dir / "agent" / "trajectory.json"
 
     result = _load_json(result_path)
-    traj = _load_json(traj_path)
+    traj = _load_json(traj_path) or _load_json(traj_path_nested)
 
     has_result_json = result is not None
     has_trajectory = traj is not None
