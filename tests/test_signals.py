@@ -1287,3 +1287,179 @@ class TestBenchmarkSource:
         signals = extract_signals(trial, suite_mapping={"oh_task": "custom_openhands"})
         assert signals["benchmark"] == "custom_openhands"
         assert signals["benchmark_source"] == "manifest"
+
+
+# ---------------------------------------------------------------------------
+# JSONL IO helpers
+# ---------------------------------------------------------------------------
+
+
+class TestWriteJsonl:
+    """Tests for write_jsonl."""
+
+    def test_writes_one_object_per_line(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_jsonl, write_jsonl
+
+        data = [{"a": 1}, {"b": 2}, {"c": 3}]
+        out = tmp_path / "out.jsonl"
+        write_jsonl(data, out)
+
+        lines = out.read_text().strip().splitlines()
+        assert len(lines) == 3
+        for line in lines:
+            json.loads(line)  # each line is valid JSON
+
+    def test_creates_meta_sidecar(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import write_jsonl
+
+        out = tmp_path / "signals.jsonl"
+        meta_path = write_jsonl(
+            [{"x": 1}],
+            out,
+            schema_version="test-v1",
+            taxonomy_version="3.0",
+        )
+
+        assert meta_path.exists()
+        assert meta_path.name == "signals.meta.json"
+        meta = json.loads(meta_path.read_text())
+        assert meta["schema_version"] == "test-v1"
+        assert meta["taxonomy_version"] == "3.0"
+        assert "generated_at" in meta
+
+    def test_roundtrip(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_jsonl, write_jsonl
+
+        data = [{"task_id": "t1", "reward": 1.0}, {"task_id": "t2", "reward": 0.0}]
+        out = tmp_path / "rt.jsonl"
+        write_jsonl(data, out)
+        loaded = load_jsonl(out)
+        assert loaded == data
+
+
+class TestLoadSignals:
+    """Tests for load_signals (transparent format detection)."""
+
+    def test_load_json(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_signals
+
+        data = [{"task_id": "t1"}, {"task_id": "t2"}]
+        p = tmp_path / "signals.json"
+        p.write_text(json.dumps(data))
+        loaded = load_signals(p)
+        assert loaded == data
+
+    def test_load_jsonl(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_signals, write_jsonl
+
+        data = [{"task_id": "t1"}, {"task_id": "t2"}]
+        p = tmp_path / "signals.jsonl"
+        write_jsonl(data, p)
+        loaded = load_signals(p)
+        assert loaded == data
+
+    def test_json_non_array_raises(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_signals
+
+        p = tmp_path / "bad.json"
+        p.write_text(json.dumps({"not": "a list"}))
+        with pytest.raises(ValueError, match="Expected a JSON array"):
+            load_signals(p)
+
+
+class TestLoadAnnotations:
+    """Tests for load_annotations (transparent format detection)."""
+
+    def test_load_json_envelope(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_annotations
+
+        envelope = {
+            "schema_version": "observatory-annotation-v1",
+            "taxonomy_version": "3.0",
+            "annotations": [{"task_id": "t1", "categories": []}],
+        }
+        p = tmp_path / "ann.json"
+        p.write_text(json.dumps(envelope))
+        loaded = load_annotations(p)
+        assert loaded == envelope
+
+    def test_load_jsonl_reconstructs_envelope(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import load_annotations, write_jsonl
+
+        items = [
+            {"task_id": "t1", "categories": []},
+            {"task_id": "t2", "categories": []},
+        ]
+        p = tmp_path / "ann.jsonl"
+        write_jsonl(
+            items,
+            p,
+            schema_version="observatory-annotation-v1",
+            taxonomy_version="3.0",
+        )
+        loaded = load_annotations(p)
+        assert loaded["schema_version"] == "observatory-annotation-v1"
+        assert loaded["taxonomy_version"] == "3.0"
+        assert loaded["annotations"] == items
+        assert "generated_at" in loaded
+
+
+class TestWriteOutput:
+    """Tests for write_output (format detection by extension)."""
+
+    def test_json_extension_writes_json(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import write_output
+
+        data = [{"a": 1}, {"b": 2}]
+        p = tmp_path / "out.json"
+        write_output(data, p)
+        loaded = json.loads(p.read_text())
+        assert loaded == data
+
+    def test_jsonl_extension_writes_jsonl(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import write_output
+
+        data = [{"a": 1}, {"b": 2}]
+        p = tmp_path / "out.jsonl"
+        write_output(data, p)
+
+        lines = p.read_text().strip().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0]) == {"a": 1}
+
+        meta_path = p.with_suffix(".meta.json")
+        assert meta_path.exists()
+
+    def test_jsonl_with_annotation_envelope(self, tmp_path: Path) -> None:
+        from agent_diagnostics.signals import write_output
+
+        envelope = {
+            "schema_version": "observatory-annotation-v1",
+            "taxonomy_version": "3.0",
+            "annotations": [{"task_id": "t1"}, {"task_id": "t2"}],
+        }
+        p = tmp_path / "ann.jsonl"
+        write_output(envelope, p)
+
+        lines = p.read_text().strip().splitlines()
+        assert len(lines) == 2
+
+        meta = json.loads(p.with_suffix(".meta.json").read_text())
+        assert meta["schema_version"] == "observatory-annotation-v1"
+        assert meta["taxonomy_version"] == "3.0"
+
+
+class TestIsJsonlPath:
+    """Tests for is_jsonl_path."""
+
+    def test_jsonl(self) -> None:
+        from agent_diagnostics.signals import is_jsonl_path
+
+        assert is_jsonl_path("foo.jsonl") is True
+        assert is_jsonl_path(Path("bar/baz.jsonl")) is True
+
+    def test_json(self) -> None:
+        from agent_diagnostics.signals import is_jsonl_path
+
+        assert is_jsonl_path("foo.json") is False
+        assert is_jsonl_path(Path("bar.json")) is False

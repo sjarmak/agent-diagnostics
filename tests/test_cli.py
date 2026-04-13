@@ -566,3 +566,128 @@ class TestMain:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# JSONL format support in CLI commands
+# ---------------------------------------------------------------------------
+
+
+class TestCmdExtractJsonl:
+    """Tests for cmd_extract with .jsonl output."""
+
+    @patch("agent_diagnostics.signals.extract_all")
+    def test_jsonl_output(self, mock_extract, tmp_path):
+        from agent_diagnostics.cli import cmd_extract
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+        mock_extract.return_value = [{"trial_id": "t1"}, {"trial_id": "t2"}]
+
+        output = tmp_path / "signals.jsonl"
+        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output))
+        cmd_extract(args)
+
+        assert output.exists()
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0]) == {"trial_id": "t1"}
+        assert json.loads(lines[1]) == {"trial_id": "t2"}
+
+        # Check meta sidecar
+        meta_path = output.with_suffix(".meta.json")
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert "schema_version" in meta
+        assert "taxonomy_version" in meta
+        assert "generated_at" in meta
+
+    @patch("agent_diagnostics.signals.extract_all")
+    def test_json_output_still_works(self, mock_extract, tmp_path):
+        from agent_diagnostics.cli import cmd_extract
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+        mock_extract.return_value = [{"trial_id": "t1"}]
+
+        output = tmp_path / "signals.json"
+        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output))
+        cmd_extract(args)
+
+        assert output.exists()
+        data = json.loads(output.read_text())
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+
+class TestCmdAnnotateJsonl:
+    """Tests for cmd_annotate with .jsonl input/output."""
+
+    def test_jsonl_input_and_output(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate
+        from agent_diagnostics.signals import write_jsonl
+
+        import agent_diagnostics.annotator as _ann_mod
+
+        # Write signals as JSONL
+        signals_data = [{"trial_id": "t1"}, {"trial_id": "t2"}]
+        signals_file = tmp_path / "signals.jsonl"
+        write_jsonl(signals_data, signals_file)
+
+        mock_annotate = MagicMock(
+            return_value={
+                "schema_version": "observatory-annotation-v1",
+                "taxonomy_version": "3.0",
+                "annotations": [
+                    {"task_id": "t1", "categories": [{"name": "cat1"}]},
+                    {"task_id": "t2", "categories": []},
+                ],
+            }
+        )
+        _ann_mod.annotate_all = mock_annotate
+        try:
+            output = tmp_path / "annotations.jsonl"
+            args = argparse.Namespace(signals=str(signals_file), output=str(output))
+            cmd_annotate(args)
+
+            mock_annotate.assert_called_once()
+            assert output.exists()
+
+            lines = output.read_text().strip().splitlines()
+            assert len(lines) == 2
+
+            meta_path = output.with_suffix(".meta.json")
+            assert meta_path.exists()
+            meta = json.loads(meta_path.read_text())
+            assert meta["schema_version"] == "observatory-annotation-v1"
+            assert meta["taxonomy_version"] == "3.0"
+        finally:
+            if hasattr(_ann_mod, "annotate_all"):
+                del _ann_mod.annotate_all
+
+    def test_json_input_jsonl_output(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate
+
+        import agent_diagnostics.annotator as _ann_mod
+
+        # Write signals as JSON (legacy)
+        signals_file = tmp_path / "signals.json"
+        signals_file.write_text(json.dumps([{"trial_id": "t1"}]))
+
+        mock_annotate = MagicMock(
+            return_value={
+                "annotations": [{"task_id": "t1", "categories": [{"name": "cat1"}]}]
+            }
+        )
+        _ann_mod.annotate_all = mock_annotate
+        try:
+            output = tmp_path / "annotations.jsonl"
+            args = argparse.Namespace(signals=str(signals_file), output=str(output))
+            cmd_annotate(args)
+
+            assert output.exists()
+            lines = output.read_text().strip().splitlines()
+            assert len(lines) == 1
+        finally:
+            if hasattr(_ann_mod, "annotate_all"):
+                del _ann_mod.annotate_all

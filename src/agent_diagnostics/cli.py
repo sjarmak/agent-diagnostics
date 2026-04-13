@@ -8,7 +8,7 @@ from pathlib import Path
 
 def cmd_extract(args):
     """Extract signals from trial directories."""
-    from agent_diagnostics.signals import extract_all
+    from agent_diagnostics.signals import extract_all, write_output
 
     runs_dir = Path(args.runs_dir)
     if not runs_dir.is_dir():
@@ -18,9 +18,7 @@ def cmd_extract(args):
     signals = extract_all(runs_dir)
 
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump(signals, f, indent=2, default=str)
+    write_output(signals, output)
 
     print(f"Extracted signals from {len(signals)} trials", file=sys.stderr)
 
@@ -28,21 +26,19 @@ def cmd_extract(args):
 def cmd_annotate(args):
     """Generate heuristic annotations from extracted signals."""
     from agent_diagnostics.annotator import annotate_all
+    from agent_diagnostics.signals import load_signals, write_output
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
         print(f"Error: signals file not found: {signals_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(signals_path) as f:
-        signals_list = json.load(f)
+    signals_list = load_signals(signals_path)
 
     annotations = annotate_all(signals_list)
 
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump(annotations, f, indent=2, default=str)
+    write_output(annotations, output)
 
     total_categories = sum(len(a["categories"]) for a in annotations["annotations"])
     print(

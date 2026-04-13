@@ -15,9 +15,12 @@
       "python3 -m pytest tests/test_signals.py passes with 0 failures"
     ],
     "layer": 0,
-    "scope": ["src/agent_diagnostics/signals.py", "tests/test_signals.py"],
-    "status": "pending",
-    "branch": null,
+    "scope": [
+      "src/agent_diagnostics/signals.py",
+      "tests/test_signals.py"
+    ],
+    "status": "landed",
+    "branch": "0fda72e",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -53,8 +56,8 @@
       "tests/test_report.py",
       "tests/test_types.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "7904811",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -80,8 +83,8 @@
       "tests/test_tool_registry.py",
       "src/agent_diagnostics/signals.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "841e2b1",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -106,8 +109,8 @@
       "src/agent_diagnostics/types.py",
       "tests/test_signals.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "ebec0ed",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -117,7 +120,9 @@
     "id": "unit-trajectory-denominators",
     "name": "MH-3: Trajectory-aware denominators in reporting",
     "description": "Add requires_trajectory metadata to heuristic checkers (derived from taxonomy signal_dependencies). Update generate_report() to show separate sections: 'Trajectory-Dependent Categories' with denominator=trajectory-available trials, and 'Reward-Dependent Categories' with denominator=full corpus. Ensure retrieval_failure rate is computed against trajectory-available trials only.",
-    "deps": ["unit-nullable-reward"],
+    "deps": [
+      "unit-nullable-reward"
+    ],
     "tier": "medium",
     "acceptance": [
       "Each heuristic checker has a requires_trajectory classification (via metadata dict or taxonomy lookup)",
@@ -146,7 +151,9 @@
     "id": "unit-jsonl-format",
     "name": "SH-1: JSONL output format",
     "description": "Update extract_all() and annotate CLI commands to support .jsonl output (one JSON object per line). Write a sidecar .meta.json with schema_version, taxonomy_version, generated_at. CLI commands detect format from output file extension (.json for legacy, .jsonl for new). Add read helpers that load both formats transparently.",
-    "deps": ["unit-trial-filter"],
+    "deps": [
+      "unit-trial-filter"
+    ],
     "tier": "medium",
     "acceptance": [
       "extract CLI writes .jsonl when output path ends in .jsonl",
@@ -193,7 +200,10 @@
       "python3 -m pytest tests/test_cli.py passes with 0 failures"
     ],
     "layer": 2,
-    "scope": ["src/agent_diagnostics/cli.py", "tests/test_cli.py"],
+    "scope": [
+      "src/agent_diagnostics/cli.py",
+      "tests/test_cli.py"
+    ],
     "status": "pending",
     "branch": null,
     "pipeline_stage": null,
@@ -205,7 +215,9 @@
     "id": "unit-cooccurrence-dimensions",
     "name": "SH-3+SH-4: Co-occurrence matrix and dimension aggregation",
     "description": "Add category co-occurrence matrix computation (pairwise counts + phi coefficients) to report.py. Add dimension-level aggregation that rolls up categories to parent dimensions using taxonomy_v3.yaml. Output co-occurrence as symmetric matrix (JSON). Add 'Dimension Summary' section to generate_report() showing failure rate per dimension.",
-    "deps": ["unit-trajectory-denominators"],
+    "deps": [
+      "unit-trajectory-denominators"
+    ],
     "tier": "medium",
     "acceptance": [
       "co_occurrence_matrix(annotations) function returns symmetric dict-of-dicts with phi coefficients",
@@ -218,7 +230,10 @@
       "python3 -m pytest tests/test_report.py passes with 0 failures"
     ],
     "layer": 2,
-    "scope": ["src/agent_diagnostics/report.py", "tests/test_report.py"],
+    "scope": [
+      "src/agent_diagnostics/report.py",
+      "tests/test_report.py"
+    ],
     "status": "pending",
     "branch": null,
     "pipeline_stage": null,

@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS  # noqa: F401
 from agent_diagnostics.tool_registry import (
@@ -624,3 +624,151 @@ def extract_all(
         )
         results.append(signals)
     return results
+
+
+# ---------------------------------------------------------------------------
+# JSONL / JSON IO helpers
+# ---------------------------------------------------------------------------
+
+_SIGNALS_SCHEMA_VERSION = "observatory-signals-v1"
+
+
+def _meta_path_for(path: Path) -> Path:
+    """Return the sidecar .meta.json path for a given .jsonl file."""
+    return path.with_suffix(".meta.json")
+
+
+def write_jsonl(
+    data_list: Sequence[dict[str, Any]],
+    path: Path,
+    *,
+    schema_version: str = _SIGNALS_SCHEMA_VERSION,
+    taxonomy_version: str | None = None,
+) -> Path:
+    """Write *data_list* as JSONL (one JSON object per line) with a sidecar.
+
+    Creates ``<path>`` with one JSON object per line and a
+    ``<path>.meta.json`` sidecar containing ``schema_version``,
+    ``taxonomy_version``, and ``generated_at``.
+
+    Returns the path to the sidecar file.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w") as f:
+        for item in data_list:
+            f.write(json.dumps(item, default=str) + "\n")
+
+    meta = {
+        "schema_version": schema_version,
+        "taxonomy_version": taxonomy_version or "",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    meta_file = _meta_path_for(path)
+    with open(meta_file, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    return meta_file
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Load a JSONL file, returning a list of dicts (one per line)."""
+    path = Path(path)
+    results: list[dict[str, Any]] = []
+    with open(path) as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped:
+                results.append(json.loads(stripped))
+    return results
+
+
+def load_signals(path: str | Path) -> list[dict[str, Any]]:
+    """Load signals from a ``.json`` or ``.jsonl`` file transparently.
+
+    For ``.jsonl`` files, reads one JSON object per line.
+    For ``.json`` files, reads the entire file as a JSON array.
+
+    Returns a list of signal dicts.
+    """
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        return load_jsonl(path)
+    with open(path) as f:
+        data = json.load(f)
+    if isinstance(data, list):
+        return data
+    raise ValueError(f"Expected a JSON array in {path}, got {type(data).__name__}")
+
+
+def load_annotations(path: str | Path) -> dict[str, Any]:
+    """Load annotations from a ``.json`` or ``.jsonl`` file transparently.
+
+    For ``.json`` files, returns the parsed dict directly (envelope format).
+    For ``.jsonl`` files, reads one annotation per line and reconstructs
+    the envelope from the ``.meta.json`` sidecar.
+
+    Returns a dict with at least ``"annotations"`` key.
+    """
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        items = load_jsonl(path)
+        meta_file = _meta_path_for(path)
+        meta: dict[str, Any] = {}
+        if meta_file.is_file():
+            with open(meta_file) as f:
+                meta = json.load(f)
+        return {
+            "schema_version": meta.get("schema_version", ""),
+            "taxonomy_version": meta.get("taxonomy_version", ""),
+            "generated_at": meta.get("generated_at", ""),
+            "annotations": items,
+        }
+    with open(path) as f:
+        return json.load(f)
+
+
+def is_jsonl_path(path: str | Path) -> bool:
+    """Return True if *path* ends with ``.jsonl``."""
+    return Path(path).suffix == ".jsonl"
+
+
+def write_output(
+    data: list[dict[str, Any]] | dict[str, Any],
+    path: str | Path,
+    *,
+    schema_version: str = _SIGNALS_SCHEMA_VERSION,
+    taxonomy_version: str | None = None,
+) -> None:
+    """Write *data* as JSON or JSONL based on output path extension.
+
+    For ``.jsonl`` paths, *data* must be a list (or a dict with an
+    ``"annotations"`` key whose value is a list).  Each item is written
+    as one line, and a ``.meta.json`` sidecar is created.
+
+    For ``.json`` paths, uses ``json.dump`` with indent=2 (legacy format).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if is_jsonl_path(path):
+        # Extract the list of items to write line-by-line
+        if isinstance(data, dict):
+            items = data.get("annotations", [])
+            # Preserve taxonomy_version from the envelope if not explicitly set
+            if taxonomy_version is None:
+                taxonomy_version = data.get("taxonomy_version")
+            if schema_version == _SIGNALS_SCHEMA_VERSION:
+                schema_version = data.get("schema_version", schema_version)
+        else:
+            items = data
+        write_jsonl(
+            items,
+            path,
+            schema_version=schema_version,
+            taxonomy_version=taxonomy_version,
+        )
+    else:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, default=str)
