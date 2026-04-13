@@ -23,3 +23,15 @@ Baseline: 651 tests.
 - CHECKER_REQUIRES_TRAJECTORY dict, split report sections with correct denominators
 - write_jsonl/load_signals helpers, .meta.json sidecar, CLI format detection
 - 763 tests passing
+
+## Layer 2 landed: unit-ingest-command (54e096e), unit-cooccurrence-dimensions (3df6fcf)
+
+- observatory ingest command with --manifest, --state incremental mode
+- co_occurrence_matrix() with phi coefficients, dimension_aggregation(), Dimension Summary section
+- 794 tests passing
+
+## PRD build complete
+
+- **8/8 units landed**, 0 evictions, 1 pass
+- **794 tests** (was 651), all passing
+- Integration branch: `prd-build/agent-trace-dataset-pipeline`

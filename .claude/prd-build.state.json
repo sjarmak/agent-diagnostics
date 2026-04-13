@@ -1,5 +1,5 @@
 {
-  "status": "executing",
+  "status": "done",
   "prd_path": "prd_agent_trace_dataset_pipeline.md",
   "max_passes": 3,
   "max_parallel": 5,

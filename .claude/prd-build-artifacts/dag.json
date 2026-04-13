@@ -204,8 +204,8 @@
       "src/agent_diagnostics/cli.py",
       "tests/test_cli.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "54e096e",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -234,8 +234,8 @@
       "src/agent_diagnostics/report.py",
       "tests/test_report.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "3df6fcf",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
