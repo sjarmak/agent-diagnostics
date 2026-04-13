@@ -989,3 +989,329 @@ class TestCheckerRequiresTrajectoryMetadata:
         # Each _check_X function produces category name derived from its name
         # Instead, verify all keys in CHECKER_REQUIRES_TRAJECTORY are non-empty
         assert len(CHECKER_REQUIRES_TRAJECTORY) >= 27
+
+
+# ---------------------------------------------------------------------------
+# Tests for co-occurrence matrix and dimension aggregation
+# ---------------------------------------------------------------------------
+
+from agent_diagnostics.report import co_occurrence_matrix, dimension_aggregation
+
+
+def _make_cooccurrence_annotations() -> list[dict]:
+    """Build annotations for co-occurrence testing."""
+    return [
+        {
+            "task_id": "t1",
+            "passed": False,
+            "reward": 0.0,
+            "categories": [
+                {"name": "cat_a", "confidence": 0.9, "evidence": "e"},
+                {"name": "cat_b", "confidence": 0.8, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t2",
+            "passed": True,
+            "reward": 1.0,
+            "categories": [
+                {"name": "cat_a", "confidence": 0.9, "evidence": "e"},
+                {"name": "cat_c", "confidence": 0.7, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t3",
+            "passed": False,
+            "reward": 0.0,
+            "categories": [
+                {"name": "cat_b", "confidence": 0.8, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t4",
+            "passed": True,
+            "reward": 1.0,
+            "categories": [],
+        },
+    ]
+
+
+class TestCoOccurrenceMatrix:
+    """Tests for co_occurrence_matrix."""
+
+    def test_empty_annotations(self) -> None:
+        assert co_occurrence_matrix([]) == {}
+
+    def test_no_categories(self) -> None:
+        anns = [{"task_id": "t1", "categories": []}]
+        assert co_occurrence_matrix(anns) == {}
+
+    def test_matrix_is_symmetric(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        for cat_a in matrix:
+            for cat_b in matrix[cat_a]:
+                assert (
+                    matrix[cat_a][cat_b] == matrix[cat_b][cat_a]
+                ), f"Matrix not symmetric at ({cat_a}, {cat_b})"
+
+    def test_diagonal_is_prevalence_count(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        # cat_a appears in t1, t2 -> count 2
+        assert matrix["cat_a"]["cat_a"] == 2.0
+        # cat_b appears in t1, t3 -> count 2
+        assert matrix["cat_b"]["cat_b"] == 2.0
+        # cat_c appears in t2 -> count 1
+        assert matrix["cat_c"]["cat_c"] == 1.0
+
+    def test_phi_coefficients_in_bounds(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        for cat_a in matrix:
+            for cat_b in matrix[cat_a]:
+                if cat_a != cat_b:
+                    assert (
+                        -1.0 <= matrix[cat_a][cat_b] <= 1.0
+                    ), f"Phi out of bounds at ({cat_a}, {cat_b}): {matrix[cat_a][cat_b]}"
+
+    def test_matrix_shape(self) -> None:
+        """Matrix should have entries for all categories that appear."""
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        assert set(matrix.keys()) == {"cat_a", "cat_b", "cat_c"}
+        for cat in matrix:
+            assert set(matrix[cat].keys()) == {"cat_a", "cat_b", "cat_c"}
+
+    def test_perfect_cooccurrence_positive_phi(self) -> None:
+        """Two categories that always appear together should have positive phi."""
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "categories": [
+                    {"name": "x", "confidence": 0.9, "evidence": "e"},
+                    {"name": "y", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(5)
+        ] + [{"task_id": f"t{i+5}", "categories": []} for i in range(5)]
+        matrix = co_occurrence_matrix(anns)
+        assert matrix["x"]["y"] > 0
+
+    def test_division_by_zero_returns_zero(self) -> None:
+        """When a category appears in all trials, denominator is zero -> phi=0."""
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "categories": [
+                    {"name": "always", "confidence": 0.9, "evidence": "e"},
+                    {"name": "sometimes", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(3)
+        ]
+        matrix = co_occurrence_matrix(anns)
+        # "always" appears in all 3 trials, so (n - n1) = 0 -> phi = 0.0
+        assert matrix["always"]["sometimes"] == 0.0
+
+
+_SAMPLE_TAXONOMY = {
+    "version": "3.0",
+    "dimensions": [
+        {
+            "name": "Retrieval",
+            "categories": [
+                {"name": "retrieval_failure"},
+                {"name": "query_churn"},
+            ],
+        },
+        {
+            "name": "Execution",
+            "categories": [
+                {"name": "incomplete_solution"},
+                {"name": "near_miss"},
+            ],
+        },
+        {
+            "name": "Strategy",
+            "categories": [
+                {"name": "success_via_code_nav"},
+                {"name": "clean_success"},
+            ],
+        },
+    ],
+}
+
+
+class TestDimensionAggregation:
+    """Tests for dimension_aggregation."""
+
+    def test_empty_annotations(self) -> None:
+        result = dimension_aggregation([], _SAMPLE_TAXONOMY)
+        assert result == {}
+
+    def test_dimension_rollup(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "reward": 0.0,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "query_churn", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+            {
+                "task_id": "t2",
+                "passed": True,
+                "reward": 1.0,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.7, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        # Both t1 and t2 have categories in Retrieval
+        assert result["Retrieval"]["trial_count"] == 2
+        # Only t1 failed
+        assert result["Retrieval"]["failure_rate"] == 0.5
+
+    def test_multiple_dimensions(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "incomplete_solution", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert "Retrieval" in result
+        assert "Execution" in result
+        assert result["Retrieval"]["trial_count"] == 1
+        assert result["Execution"]["trial_count"] == 1
+
+    def test_trial_counted_once_per_dimension(self) -> None:
+        """A trial with two categories in same dimension counts once."""
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "query_churn", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Retrieval"]["trial_count"] == 1
+
+    def test_failure_rate_all_failed(self) -> None:
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(3)
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Retrieval"]["failure_rate"] == 1.0
+
+    def test_failure_rate_none_failed(self) -> None:
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "passed": True,
+                "categories": [
+                    {
+                        "name": "success_via_code_nav",
+                        "confidence": 0.9,
+                        "evidence": "e",
+                    },
+                ],
+            }
+            for i in range(3)
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Strategy"]["failure_rate"] == 0.0
+
+    def test_result_structure(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        for dim_name, info in result.items():
+            assert "failure_rate" in info
+            assert "trial_count" in info
+            assert isinstance(info["failure_rate"], float)
+            assert isinstance(info["trial_count"], int)
+
+
+class TestDimensionSummaryInReport:
+    """Verify Dimension Summary appears in generated report."""
+
+    def test_dimension_summary_section_in_md(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "## Dimension Summary" in content
+
+    def test_dimension_summary_key_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert "dimension_summary" in data
+
+    def test_dimension_summary_structure_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        dim_summary = data["dimension_summary"]
+        for dim_name, info in dim_summary.items():
+            assert "failure_rate" in info
+            assert "trial_count" in info
+
+    def test_co_occurrence_key_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert "co_occurrence" in data
+
+    def test_dimension_summary_in_md_table_format(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "| Dimension | Trial Count | Failure Rate |" in content
+
+    def test_empty_annotations_no_dimension_summary_section(
+        self, tmp_path: Path
+    ) -> None:
+        """Empty annotations produce no dimension summary section (no dimensions to show)."""
+        md_path, _ = generate_report({"annotations": []}, tmp_path)
+        content = md_path.read_text()
+        # With no annotations, dimension_summary is empty dict, section is skipped
+        assert "## Dimension Summary" not in content
+
+    def test_empty_annotations_json_has_empty_dimension_summary(
+        self, tmp_path: Path
+    ) -> None:
+        _, json_path = generate_report({"annotations": []}, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert data["dimension_summary"] == {}
+        assert data["co_occurrence"] == {}
