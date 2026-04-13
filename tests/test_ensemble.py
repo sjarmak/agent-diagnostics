@@ -320,6 +320,18 @@ class TestEnsembleAll:
 
         assert result["annotations"] == []
 
+    def test_none_reward_preserved_in_output(self) -> None:
+        """When reward is None, ensemble_all should not crash and handle it."""
+        signals = _make_signals(reward=None, passed=False)
+        model = _make_model()
+
+        result = ensemble_all([signals], model)
+        # Should produce annotations without error
+        assert isinstance(result, dict)
+        for ann in result["annotations"]:
+            # reward should be 0.0 (coerced for output) since None is not JSON-friendly
+            assert "reward" in ann
+
     def test_annotator_identity_includes_tier_info(self) -> None:
         signals = _make_signals(exception_crashed=True)
         model = _make_model()

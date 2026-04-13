@@ -177,7 +177,7 @@ class TestImports:
 
 
 class TestBasicExtraction:
-    def test_returns_trial_signals_with_27_keys(self, basic_trial: Path) -> None:
+    def test_returns_trial_signals_with_28_keys(self, basic_trial: Path) -> None:
         signals = extract_signals(
             basic_trial,
             suite_mapping={"fix_": "test_bench"},
@@ -190,6 +190,7 @@ class TestBasicExtraction:
             "benchmark_source",
             "reward",
             "passed",
+            "has_verifier_result",
             "total_turns",
             "tool_calls_total",
             "search_tool_calls",
@@ -726,6 +727,70 @@ class TestRewardScoreFallback:
         )
         signals = extract_signals(trial, suite_mapping={})
         assert signals["reward"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Tests: nullable reward and has_verifier_result
+# ---------------------------------------------------------------------------
+
+
+class TestNullableReward:
+    def test_reward_none_when_no_verifier_result(self, tmp_path: Path) -> None:
+        """When result.json has no verifier_result, reward should be None."""
+        trial = tmp_path / "no_verifier_trial"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "no_verifier_task",
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["reward"] is None
+
+    def test_has_verifier_result_false_when_no_verifier(self, tmp_path: Path) -> None:
+        trial = tmp_path / "no_verifier_trial2"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "no_verifier_task",
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["has_verifier_result"] is False
+
+    def test_has_verifier_result_true_when_verifier_present(
+        self, basic_trial: Path
+    ) -> None:
+        signals = extract_signals(basic_trial, suite_mapping={})
+        assert signals["has_verifier_result"] is True
+
+    def test_passed_false_when_reward_none(self, tmp_path: Path) -> None:
+        trial = tmp_path / "no_verifier_trial3"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "no_verifier_task",
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["passed"] is False
+
+    def test_reward_none_when_no_result_json(self, tmp_path: Path) -> None:
+        """When there's no result.json at all, reward should be None."""
+        trial = tmp_path / "empty_trial"
+        trial.mkdir()
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["reward"] is None
+        assert signals["has_verifier_result"] is False
+
+    def test_reward_zero_preserved_as_zero(self, no_trajectory_trial: Path) -> None:
+        """reward=0.0 from verifier should remain 0.0, not become None."""
+        signals = extract_signals(no_trajectory_trial, suite_mapping={})
+        assert signals["reward"] == 0.0
+        assert signals["has_verifier_result"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -284,6 +284,55 @@ class TestEmptyAnnotations:
         assert "## Success Mode Summary" in content
 
 
+class TestNoneRewardInAnnotations:
+    """Verify None reward values are handled gracefully in report generation."""
+
+    def test_none_reward_in_avg_calculation(self, tmp_path: Path) -> None:
+        """avg_reward should exclude None rewards from calculation."""
+        annotations = _make_annotations(
+            [
+                {
+                    "task_id": "t1",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": True,
+                    "reward": 1.0,
+                    "categories": [],
+                },
+                {
+                    "task_id": "t2",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": False,
+                    "reward": None,
+                    "categories": [],
+                },
+            ]
+        )
+        _, json_path = generate_report(annotations, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        # Only t1's reward=1.0 should be averaged (None excluded)
+        assert stats["avg_reward"] == 1.0
+
+    def test_all_none_rewards(self, tmp_path: Path) -> None:
+        """When all rewards are None, avg_reward should be 0.0."""
+        annotations = _make_annotations(
+            [
+                {
+                    "task_id": "t1",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": False,
+                    "reward": None,
+                    "categories": [],
+                },
+            ]
+        )
+        _, json_path = generate_report(annotations, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        assert stats["avg_reward"] == 0.0
+
+
 class TestImportPath:
     """Verify the public import works."""
 

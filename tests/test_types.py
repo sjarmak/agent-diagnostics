@@ -20,9 +20,9 @@ class TestTrialSignalsImport:
     def test_import_succeeds(self) -> None:
         assert TrialSignals is not None
 
-    def test_has_26_keys(self) -> None:
+    def test_has_28_keys(self) -> None:
         hints = get_type_hints(TrialSignals)
-        assert len(hints) == 26, f"Expected 26 keys, got {len(hints)}: {sorted(hints)}"
+        assert len(hints) == 28, f"Expected 28 keys, got {len(hints)}: {sorted(hints)}"
 
     def test_expected_keys_present(self) -> None:
         hints = get_type_hints(TrialSignals)
@@ -33,6 +33,7 @@ class TestTrialSignalsImport:
             "benchmark",
             "reward",
             "passed",
+            "has_verifier_result",
             "total_turns",
             "tool_calls_total",
             "search_tool_calls",
@@ -53,6 +54,7 @@ class TestTrialSignalsImport:
             "exception_crashed",
             "patch_size_lines",
             "tool_call_sequence",
+            "benchmark_source",
         }
         assert set(hints.keys()) == expected_keys
 

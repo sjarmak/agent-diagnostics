@@ -807,6 +807,46 @@ class TestRewardHacking:
         assert "test_foo" in rh.evidence
 
 
+class TestNoneRewardHandling:
+    """AC: annotate_trial handles None reward without crashing."""
+
+    def test_none_reward_no_crash(self) -> None:
+        signals: TrialSignals = {"reward": None, "passed": False}
+        results = annotate_trial(signals)
+        assert isinstance(results, list)
+        for r in results:
+            assert isinstance(r, CategoryAssignment)
+
+    def test_none_reward_skips_reward_dependent_heuristics(self) -> None:
+        """With None reward, reward-dependent checkers should return None (skip)."""
+        signals: TrialSignals = {
+            "reward": None,
+            "passed": False,
+            "search_tool_calls": 0,
+            "unique_files_read": 0,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        # These categories require non-None reward to trigger
+        assert "retrieval_failure" not in names
+        assert "incomplete_solution" not in names
+        assert "near_miss" not in names
+        assert "minimal_progress" not in names
+
+    def test_none_reward_with_infrastructure_signals(self) -> None:
+        """Infrastructure signals (rate_limited, exception_crashed) still fire with None reward."""
+        signals: TrialSignals = {
+            "reward": None,
+            "passed": False,
+            "rate_limited": True,
+            "exception_crashed": True,
+        }
+        results = annotate_trial(signals)
+        names = _names(results)
+        assert "rate_limited_run" in names
+        assert "exception_crash" in names
+
+
 class TestDefaultRegistryKwarg:
     def test_default_registry_used(self) -> None:
         signals: TrialSignals = {
