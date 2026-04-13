@@ -310,34 +310,93 @@ def _resolve_model(
 # ---------------------------------------------------------------------------
 
 
+# Known directory-name patterns mapping substrings to benchmark names.
+_DIRECTORY_BENCHMARK_PATTERNS: dict[str, str] = {
+    "crossrepo": "crossrepo",
+    "openhands": "openhands",
+    "swe-bench": "swe-bench",
+    "swe_bench": "swe-bench",
+}
+
+
+def load_manifest(path: Path) -> dict[str, str]:
+    """Parse a MANIFEST.json file and return a suite_mapping dict.
+
+    The manifest maps run directory names to benchmark names, e.g.::
+
+        {
+            "csb_crossrepo_run1": "crossrepo",
+            "openhands_eval_42": "openhands"
+        }
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    data = _load_json(path)
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(k): str(v)
+        for k, v in data.items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
+
+
+def _resolve_benchmark_from_directory(trial_dir: Path) -> str | None:
+    """Resolve benchmark name from directory-name conventions.
+
+    Checks path components for known benchmark substrings such as
+    ``crossrepo``, ``openhands``, and ``swe-bench``/``swe_bench``.
+    """
+    parts_to_check = (
+        trial_dir.parts[-4:] if len(trial_dir.parts) >= 4 else trial_dir.parts
+    )
+    for part in parts_to_check:
+        part_lower = part.lower()
+        for pattern, benchmark in _DIRECTORY_BENCHMARK_PATTERNS.items():
+            if pattern in part_lower:
+                return benchmark
+    return None
+
+
 def _resolve_benchmark(
     task_id: str | None,
     suite_mapping: dict[str, str] | None,
     benchmark_resolver: Callable[[Path], str | None] | None,
     trial_dir: Path,
-) -> str | None:
-    """Resolve benchmark name via suite_mapping prefix match or callable."""
+) -> tuple[str | None, str]:
+    """Resolve benchmark name via suite_mapping prefix match or callable.
+
+    Returns a tuple of ``(benchmark_name, source)`` where *source* is one of
+    ``"manifest"`` (resolved via suite_mapping or benchmark_resolver),
+    ``"directory"`` (resolved via directory-name convention), or ``""``
+    (unresolved).
+    """
     # Try benchmark_resolver first (most specific)
     if benchmark_resolver is not None:
         result = benchmark_resolver(trial_dir)
         if result:
-            return result
+            return result, "manifest"
 
     # Try suite_mapping prefix match against task_id
     if suite_mapping and task_id:
         # Sort by descending prefix length for correct longest-match
         for prefix in sorted(suite_mapping, key=len, reverse=True):
             if task_id.startswith(prefix):
-                return suite_mapping[prefix]
+                return suite_mapping[prefix], "manifest"
 
     # Try suite_mapping prefix match against directory name
     if suite_mapping:
         dir_name = trial_dir.name
         for prefix in sorted(suite_mapping, key=len, reverse=True):
             if dir_name.startswith(prefix):
-                return suite_mapping[prefix]
+                return suite_mapping[prefix], "manifest"
 
-    return None
+    # Try directory-name convention fallback
+    dir_result = _resolve_benchmark_from_directory(trial_dir)
+    if dir_result:
+        return dir_result, "directory"
+
+    return None, ""
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +463,14 @@ def extract_signals(
     has_result_json = result is not None
     has_trajectory = traj is not None
 
+    # --- Auto-detect tool registry from agent_info.name ---
+    if tool_registry is _REGISTRY_NOT_SET:
+        agent_name = _get_nested(result, "agent_info", "name")
+        if agent_name and isinstance(agent_name, str):
+            tool_registry = get_registry_for_agent(agent_name)
+        else:
+            tool_registry = DEFAULT_REGISTRY
+
     # --- Reward / passed ---
     reward: float | None = None
     if result:
@@ -426,7 +493,7 @@ def extract_signals(
         config_name = _get_nested(result, "config", "name")
 
     # --- Benchmark ---
-    benchmark = _resolve_benchmark(
+    benchmark, benchmark_source = _resolve_benchmark(
         task_id, suite_mapping, benchmark_resolver, trial_dir
     )
 
@@ -480,6 +547,7 @@ def extract_signals(
         "exception_crashed": exception_crashed,
         "patch_size_lines": traj_signals["patch_size_lines"],
         "tool_call_sequence": traj_signals["tool_call_sequence"],
+        "benchmark_source": benchmark_source,
     }
 
     return signals
@@ -510,7 +578,7 @@ def judge_safe_signals(signals: dict[str, Any]) -> dict[str, Any]:
 def extract_all(
     root_dir: Path,
     *,
-    tool_registry: ToolRegistry = DEFAULT_REGISTRY,
+    tool_registry: ToolRegistry = _REGISTRY_NOT_SET,
     suite_mapping: dict[str, str] | None = None,
     benchmark_resolver: Callable[[Path], str | None] | None = None,
     task_id_normalizer: Callable[[str], str] | None = None,

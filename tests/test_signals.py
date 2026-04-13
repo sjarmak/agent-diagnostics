@@ -11,10 +11,16 @@ import pytest
 from agent_diagnostics.signals import (
     _is_excluded_path,
     _is_valid_trial,
+    _resolve_benchmark_from_directory,
     extract_all,
     extract_signals,
+    load_manifest,
 )
-from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.tool_registry import (
+    DEFAULT_REGISTRY,
+    OPENHANDS_REGISTRY,
+    ToolRegistry,
+)
 from agent_diagnostics.types import TrialSignals
 
 # ---------------------------------------------------------------------------
@@ -171,7 +177,7 @@ class TestImports:
 
 
 class TestBasicExtraction:
-    def test_returns_trial_signals_with_26_keys(self, basic_trial: Path) -> None:
+    def test_returns_trial_signals_with_27_keys(self, basic_trial: Path) -> None:
         signals = extract_signals(
             basic_trial,
             suite_mapping={"fix_": "test_bench"},
@@ -181,6 +187,7 @@ class TestBasicExtraction:
             "model",
             "config_name",
             "benchmark",
+            "benchmark_source",
             "reward",
             "passed",
             "total_turns",
@@ -890,3 +897,147 @@ class TestExtractAllFiltering:
 
         results = extract_all(tmp_path, suite_mapping={})
         assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: OpenHands auto-detection via agent_info.name
+# ---------------------------------------------------------------------------
+
+
+class TestOpenHandsAutoDetection:
+    """Verify extract_signals auto-selects OPENHANDS_REGISTRY from agent_info."""
+
+    def test_openhands_agent_uses_openhands_registry(self, tmp_path: Path) -> None:
+        """When agent_info.name contains 'openhands', tool calls are categorized
+        using the OpenHands registry."""
+        trial = tmp_path / "oh_trial"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "oh_task",
+                "agent_info": {
+                    "name": "openhands-agent-v1",
+                    "model_info": {"name": "gpt-4"},
+                },
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+        _write_trajectory(
+            trial,
+            {
+                "steps": [
+                    _make_step(
+                        [
+                            _make_tool_call("execute_bash", {"command": "grep foo"}),
+                            _make_tool_call(
+                                "str_replace_editor",
+                                {"file_path": "/src/app.py", "new_string": "fixed\n"},
+                            ),
+                            _make_tool_call("browser", {"url": "http://localhost"}),
+                        ]
+                    ),
+                ],
+            },
+        )
+        # Do NOT pass tool_registry — should auto-detect from agent_info.name
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["search_tool_calls"] == 1  # execute_bash
+        assert signals["edit_tool_calls"] == 1  # str_replace_editor
+        assert signals["code_nav_tool_calls"] == 1  # browser
+
+    def test_non_openhands_agent_uses_default_registry(self, tmp_path: Path) -> None:
+        """When agent_info.name does not contain 'openhands', default registry
+        is used."""
+        trial = tmp_path / "cc_trial"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "cc_task",
+                "agent_info": {
+                    "name": "claude-code",
+                    "model_info": {"name": "anthropic/claude-sonnet-4-6"},
+                },
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+        _write_trajectory(
+            trial,
+            {
+                "steps": [
+                    _make_step(
+                        [
+                            _make_tool_call("Grep", {"pattern": "bug"}),
+                            _make_tool_call(
+                                "Edit",
+                                {"file_path": "/src/app.py", "new_string": "fixed\n"},
+                            ),
+                        ]
+                    ),
+                ],
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["search_tool_calls"] == 1  # Grep via DEFAULT_REGISTRY
+        assert signals["edit_tool_calls"] == 1  # Edit via DEFAULT_REGISTRY
+
+    def test_explicit_registry_overrides_auto_detection(self, tmp_path: Path) -> None:
+        """When tool_registry is explicitly passed, agent_info.name is ignored."""
+        trial = tmp_path / "override_trial"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "override_task",
+                "agent_info": {
+                    "name": "openhands-agent",
+                    "model_info": {"name": "gpt-4"},
+                },
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+        _write_trajectory(
+            trial,
+            {
+                "steps": [
+                    _make_step(
+                        [
+                            _make_tool_call("Grep", {"pattern": "foo"}),
+                        ]
+                    ),
+                ],
+            },
+        )
+        # Explicitly pass DEFAULT_REGISTRY even though agent is openhands
+        signals = extract_signals(
+            trial, tool_registry=DEFAULT_REGISTRY, suite_mapping={}
+        )
+        assert signals["search_tool_calls"] == 1  # Grep categorized by DEFAULT
+
+    def test_missing_agent_info_falls_back_to_default(self, tmp_path: Path) -> None:
+        """When agent_info.name is absent, DEFAULT_REGISTRY is used."""
+        trial = tmp_path / "no_agent_trial"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "no_agent_task",
+                "agent_info": {},
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+        _write_trajectory(
+            trial,
+            {
+                "steps": [
+                    _make_step(
+                        [
+                            _make_tool_call("Grep", {"pattern": "test"}),
+                        ]
+                    ),
+                ],
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["search_tool_calls"] == 1  # Grep via DEFAULT_REGISTRY
