@@ -15,12 +15,48 @@ from pathlib import Path
 from typing import Any
 
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS  # noqa: F401
-from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.tool_registry import (
+    DEFAULT_REGISTRY,
+    ToolRegistry,
+    get_registry_for_agent,
+)
 from agent_diagnostics.types import TrialSignals
+
+# Sentinel object to detect when tool_registry was not explicitly provided.
+_REGISTRY_NOT_SET: ToolRegistry = ToolRegistry(
+    search_tools=frozenset(),
+    edit_tools=frozenset(),
+    code_nav_tools=frozenset(),
+    semantic_search_tools=frozenset(),
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+_EXCLUDED_DIR_PATTERNS: tuple[str, ...] = (
+    "__archived_invalid",
+    "__incomplete",
+    "__pre_sgenv_fix",
+    "__verifier_path_bug",
+    "__doubled_prefix",
+)
+
+
+def _is_valid_trial(data: dict[str, Any]) -> bool:
+    """Check whether *data* (from result.json) represents a valid trial.
+
+    Returns ``False`` for harness summaries and other non-trial records
+    that lack the ``agent_info`` key.
+    """
+    return "agent_info" in data
+
+
+def _is_excluded_path(trial_dir: Path) -> bool:
+    """Return ``True`` if any path component matches an excluded pattern."""
+    parts = trial_dir.parts
+    return any(pattern in parts for pattern in _EXCLUDED_DIR_PATTERNS)
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -312,7 +348,7 @@ def _resolve_benchmark(
 def extract_signals(
     trial_dir: Path,
     *,
-    tool_registry: ToolRegistry = DEFAULT_REGISTRY,
+    tool_registry: ToolRegistry = _REGISTRY_NOT_SET,
     suite_mapping: dict[str, str] | None = None,
     benchmark_resolver: Callable[[Path], str | None] | None = None,
     task_id_normalizer: Callable[[str], str] | None = None,
@@ -324,12 +360,17 @@ def extract_signals(
     produces a :class:`TrialSignals` dict with all 26 keys populated
     (or set to sensible defaults when data is missing).
 
+    When *tool_registry* is not explicitly provided, the function reads
+    ``result.json``'s ``agent_info.name`` field and auto-selects the
+    appropriate registry via :func:`get_registry_for_agent`.
+
     Parameters
     ----------
     trial_dir:
         Path to a trial directory (should contain ``result.json``).
     tool_registry:
-        Tool name classification registry.  Defaults to
+        Tool name classification registry.  When omitted, auto-detected
+        from ``agent_info.name`` in ``result.json``; falls back to
         :data:`DEFAULT_REGISTRY`.
     suite_mapping:
         Optional ``{prefix: benchmark_name}`` dict for benchmark
@@ -494,6 +535,16 @@ def extract_all(
     results: list[TrialSignals] = []
     for result_file in sorted(root_dir.rglob("result.json")):
         trial_dir = result_file.parent
+
+        # Skip directories matching excluded patterns
+        if _is_excluded_path(trial_dir):
+            continue
+
+        # Skip invalid trials (e.g. harness summaries without agent_info)
+        data = _load_json(result_file)
+        if data is None or not _is_valid_trial(data):
+            continue
+
         signals = extract_signals(
             trial_dir,
             tool_registry=tool_registry,

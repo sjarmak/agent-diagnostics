@@ -43,6 +43,7 @@ class TrialSignals(TypedDict, total=False):
     exception_crashed: bool
     patch_size_lines: int
     tool_call_sequence: list[str]
+    benchmark_source: str
 
 
 # ---------------------------------------------------------------------------

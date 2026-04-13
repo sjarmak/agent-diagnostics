@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from agent_diagnostics.signals import extract_all, extract_signals
+from agent_diagnostics.signals import (
+    _is_excluded_path,
+    _is_valid_trial,
+    extract_all,
+    extract_signals,
+)
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import TrialSignals
 
@@ -426,6 +431,7 @@ class TestExtractAll:
                 trial,
                 {
                     "task_name": f"task_{i}",
+                    "agent_info": {"model_info": {"name": "test-model"}},
                     "verifier_result": {"rewards": {"reward": float(i)}},
                 },
             )
@@ -439,6 +445,7 @@ class TestExtractAll:
             trial,
             {
                 "task_name": "only_task",
+                "agent_info": {"model_info": {"name": "test-model"}},
                 "verifier_result": {"rewards": {"reward": 1.0}},
             },
         )
@@ -729,3 +736,157 @@ class TestNoCsbDependencies:
         assert "CodeScaleBench" not in source
         assert "Path(__file__).parent.parent" not in source
         assert "sys.path" not in source
+
+
+# ---------------------------------------------------------------------------
+# Tests: _is_valid_trial
+# ---------------------------------------------------------------------------
+
+
+class TestIsValidTrial:
+    def test_rejects_harness_summary_without_agent_info(self) -> None:
+        """Harness summaries lack agent_info and should be rejected."""
+        data = {
+            "task_name": "summary",
+            "verifier_result": {"rewards": {"reward": 1.0}},
+        }
+        assert _is_valid_trial(data) is False
+
+    def test_accepts_trial_with_agent_info(self) -> None:
+        data = {
+            "task_name": "real_trial",
+            "agent_info": {"model_info": {"name": "anthropic/claude-sonnet-4-6"}},
+            "verifier_result": {"rewards": {"reward": 1.0}},
+        }
+        assert _is_valid_trial(data) is True
+
+    def test_rejects_empty_dict(self) -> None:
+        assert _is_valid_trial({}) is False
+
+    def test_accepts_minimal_agent_info(self) -> None:
+        assert _is_valid_trial({"agent_info": {}}) is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: _is_excluded_path
+# ---------------------------------------------------------------------------
+
+
+class TestIsExcludedPath:
+    def test_excludes_archived_invalid(self) -> None:
+        p = Path("/data/__archived_invalid/trial_01")
+        assert _is_excluded_path(p) is True
+
+    def test_excludes_incomplete(self) -> None:
+        p = Path("/data/__incomplete/trial_01")
+        assert _is_excluded_path(p) is True
+
+    def test_excludes_pre_sgenv_fix(self) -> None:
+        p = Path("/data/__pre_sgenv_fix/trial_01")
+        assert _is_excluded_path(p) is True
+
+    def test_excludes_verifier_path_bug(self) -> None:
+        p = Path("/data/__verifier_path_bug/trial_01")
+        assert _is_excluded_path(p) is True
+
+    def test_excludes_doubled_prefix(self) -> None:
+        p = Path("/data/__doubled_prefix/trial_01")
+        assert _is_excluded_path(p) is True
+
+    def test_does_not_exclude_normal_path(self) -> None:
+        p = Path("/data/runs/trial_01")
+        assert _is_excluded_path(p) is False
+
+    def test_matches_pattern_anywhere_in_path(self) -> None:
+        p = Path("/data/experiments/__incomplete/run_1/trial_01")
+        assert _is_excluded_path(p) is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: extract_all filtering
+# ---------------------------------------------------------------------------
+
+
+class TestExtractAllFiltering:
+    def test_skips_trials_without_agent_info(self, tmp_path: Path) -> None:
+        """Trials missing agent_info (harness summaries) are excluded."""
+        # Valid trial
+        valid = tmp_path / "valid_trial"
+        valid.mkdir()
+        _write_result(
+            valid,
+            {
+                "task_name": "real_task",
+                "agent_info": {"model_info": {"name": "test-model"}},
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+
+        # Harness summary (no agent_info)
+        invalid = tmp_path / "harness_summary"
+        invalid.mkdir()
+        _write_result(
+            invalid,
+            {
+                "task_name": "summary",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+
+        results = extract_all(tmp_path, suite_mapping={})
+        assert len(results) == 1
+        assert results[0]["task_id"] == "real_task"
+
+    def test_skips_excluded_dir_patterns(self, tmp_path: Path) -> None:
+        """Directories matching excluded patterns are skipped."""
+        # Valid trial in excluded dir
+        excluded = tmp_path / "__archived_invalid" / "trial_01"
+        excluded.mkdir(parents=True)
+        _write_result(
+            excluded,
+            {
+                "task_name": "archived_task",
+                "agent_info": {"model_info": {"name": "test-model"}},
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+
+        # Valid trial in normal dir
+        normal = tmp_path / "good_run" / "trial_01"
+        normal.mkdir(parents=True)
+        _write_result(
+            normal,
+            {
+                "task_name": "good_task",
+                "agent_info": {"model_info": {"name": "test-model"}},
+                "verifier_result": {"rewards": {"reward": 1.0}},
+            },
+        )
+
+        results = extract_all(tmp_path, suite_mapping={})
+        assert len(results) == 1
+        assert results[0]["task_id"] == "good_task"
+
+    def test_skips_all_excluded_patterns(self, tmp_path: Path) -> None:
+        """All five excluded patterns are filtered out."""
+        patterns = [
+            "__archived_invalid",
+            "__incomplete",
+            "__pre_sgenv_fix",
+            "__verifier_path_bug",
+            "__doubled_prefix",
+        ]
+        for i, pattern in enumerate(patterns):
+            trial = tmp_path / pattern / f"trial_{i}"
+            trial.mkdir(parents=True)
+            _write_result(
+                trial,
+                {
+                    "task_name": f"task_{i}",
+                    "agent_info": {"model_info": {"name": "test-model"}},
+                    "verifier_result": {"rewards": {"reward": 1.0}},
+                },
+            )
+
+        results = extract_all(tmp_path, suite_mapping={})
+        assert len(results) == 0
