@@ -120,6 +120,12 @@ class TestSignalsToFeatures:
         result = signals_to_features(signals)
         assert result[FEATURE_NAMES.index("reward")] == 0.0
 
+    def test_none_reward_converted_to_zero_in_features(self) -> None:
+        """Nullable reward from extract_signals should become 0.0 in feature vector."""
+        signals = {"reward": None, "passed": False, "has_verifier_result": False}
+        result = signals_to_features(signals)
+        assert result[FEATURE_NAMES.index("reward")] == 0.0
+
 
 # ---------------------------------------------------------------------------
 # Tests — FEATURE_NAMES

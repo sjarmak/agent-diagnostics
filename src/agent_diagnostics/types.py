@@ -13,7 +13,7 @@ from typing import Optional, Protocol, Sequence, TypedDict, Union, runtime_check
 class TrialSignals(TypedDict, total=False):
     """Raw signal values extracted from a single benchmark trial.
 
-    All 26 keys are declared; ``total=False`` allows partial construction
+    All 28 keys are declared; ``total=False`` allows partial construction
     during incremental extraction.
     """
 
@@ -21,8 +21,9 @@ class TrialSignals(TypedDict, total=False):
     model: str
     config_name: str
     benchmark: str
-    reward: float
+    reward: float | None
     passed: bool
+    has_verifier_result: bool
     total_turns: int
     tool_calls_total: int
     search_tool_calls: int
@@ -43,6 +44,7 @@ class TrialSignals(TypedDict, total=False):
     exception_crashed: bool
     patch_size_lines: int
     tool_call_sequence: list[str]
+    benchmark_source: str
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ class TrialInput(Protocol):
     def trial_path(self) -> str: ...
 
     @property
-    def reward(self) -> float: ...
+    def reward(self) -> float | None: ...
 
     @property
     def passed(self) -> bool: ...
@@ -100,7 +102,7 @@ class Annotation:
     # Required fields (mirror JSON schema required list)
     task_id: str
     trial_path: str
-    reward: float
+    reward: Optional[float]
     passed: bool
     categories: tuple[CategoryAssignment, ...]
 

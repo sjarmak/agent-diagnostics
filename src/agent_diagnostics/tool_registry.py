@@ -64,3 +64,43 @@ DEFAULT_REGISTRY = ToolRegistry(
         }
     ),
 )
+
+OPENHANDS_REGISTRY = ToolRegistry(
+    search_tools=frozenset(
+        {
+            "execute_bash",
+        }
+    ),
+    edit_tools=frozenset(
+        {
+            "str_replace_editor",
+        }
+    ),
+    code_nav_tools=frozenset(
+        {
+            "browser",
+        }
+    ),
+    semantic_search_tools=frozenset(),
+)
+
+# ---------------------------------------------------------------------------
+# Agent-based registry selection
+# ---------------------------------------------------------------------------
+
+_AGENT_REGISTRIES: dict[str, ToolRegistry] = {
+    "openhands": OPENHANDS_REGISTRY,
+}
+
+
+def get_registry_for_agent(agent_name: str) -> ToolRegistry:
+    """Return the appropriate :class:`ToolRegistry` for the given agent name.
+
+    Performs case-insensitive substring matching against known agent names.
+    Returns :data:`DEFAULT_REGISTRY` when no agent-specific registry is found.
+    """
+    agent_lower = agent_name.lower()
+    for key, registry in _AGENT_REGISTRIES.items():
+        if key in agent_lower:
+            return registry
+    return DEFAULT_REGISTRY

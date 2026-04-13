@@ -7,10 +7,13 @@ companion file containing machine-readable statistics.
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
 
 
 def _load_taxonomy_polarity() -> dict[str, str]:
@@ -51,6 +54,17 @@ def _corpus_stats(annotations: list[dict]) -> dict[str, Any]:
     }
 
 
+def _count_trajectory_available(annotations: list[dict]) -> int:
+    """Count annotations that have trajectory data available."""
+    count = 0
+    for a in annotations:
+        # Check signals sub-dict first, then top-level
+        signals = a.get("signals") or {}
+        if signals.get("has_trajectory", False) or a.get("has_trajectory", False):
+            count += 1
+    return count
+
+
 def _category_counts(annotations: list[dict]) -> dict[str, int]:
     """Count how many trials are assigned each category."""
     counts: Counter = Counter()
@@ -58,6 +72,34 @@ def _category_counts(annotations: list[dict]) -> dict[str, int]:
         for cat in a.get("categories", []):
             counts[cat["name"]] += 1
     return dict(counts.most_common())
+
+
+def _category_counts_with_denominators(
+    annotations: list[dict],
+) -> dict[str, dict[str, Any]]:
+    """Count categories with appropriate denominators.
+
+    Returns a dict mapping category name to
+    ``{"count": N, "denominator": M, "rate": N/M}``.
+
+    Trajectory-dependent categories use trajectory-available trials as
+    denominator; reward-dependent categories use full corpus size.
+    """
+    total = len(annotations)
+    traj_available = _count_trajectory_available(annotations)
+
+    counts: Counter = Counter()
+    for a in annotations:
+        for cat in a.get("categories", []):
+            counts[cat["name"]] += 1
+
+    result: dict[str, dict[str, Any]] = {}
+    for name, count in counts.most_common():
+        requires_traj = CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+        denominator = traj_available if requires_traj else total
+        rate = round(count / denominator, 4) if denominator > 0 else 0.0
+        result[name] = {"count": count, "denominator": denominator, "rate": rate}
+    return result
 
 
 def _category_by_config(annotations: list[dict]) -> dict[str, dict[str, int]]:
@@ -221,6 +263,129 @@ def _top_categories_with_examples(
     return results
 
 
+def co_occurrence_matrix(annotations: list[dict]) -> dict[str, dict[str, float]]:
+    """Compute category co-occurrence matrix with phi coefficients.
+
+    Returns a symmetric dict-of-dicts where:
+    - Diagonal entries contain the prevalence count for that category.
+    - Off-diagonal entries contain the phi coefficient in [-1, 1].
+
+    Parameters
+    ----------
+    annotations : list[dict]
+        List of annotation dicts, each with a ``categories`` key.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        Symmetric matrix as nested dicts.
+    """
+    n = len(annotations)
+    if n == 0:
+        return {}
+
+    # Build per-annotation category sets
+    trial_cats: list[set[str]] = []
+    all_cats: set[str] = set()
+    for a in annotations:
+        cats = {cat["name"] for cat in a.get("categories", [])}
+        trial_cats.append(cats)
+        all_cats.update(cats)
+
+    if not all_cats:
+        return {}
+
+    sorted_cats = sorted(all_cats)
+
+    # Count occurrences per category
+    cat_count: dict[str, int] = Counter()
+    for cats in trial_cats:
+        for c in cats:
+            cat_count[c] += 1
+
+    # Count pairwise co-occurrences
+    pair_count: dict[tuple[str, str], int] = Counter()
+    for cats in trial_cats:
+        cat_list = sorted(cats)
+        for i, a in enumerate(cat_list):
+            for b in cat_list[i + 1 :]:
+                pair_count[(a, b)] += 1
+
+    # Build matrix
+    matrix: dict[str, dict[str, float]] = {}
+    for cat in sorted_cats:
+        matrix[cat] = {}
+
+    for cat in sorted_cats:
+        # Diagonal: prevalence count
+        matrix[cat][cat] = float(cat_count[cat])
+
+    for i, cat_a in enumerate(sorted_cats):
+        for cat_b in sorted_cats[i + 1 :]:
+            n1 = cat_count[cat_a]
+            n2 = cat_count[cat_b]
+            n11 = pair_count.get((cat_a, cat_b), 0)
+
+            # Phi coefficient
+            # phi = (n*n11 - n1*n2) / sqrt(n1 * n2 * (n - n1) * (n - n2))
+            numerator = n * n11 - n1 * n2
+            denominator_val = n1 * n2 * (n - n1) * (n - n2)
+            if denominator_val <= 0:
+                phi = 0.0
+            else:
+                phi = numerator / math.sqrt(denominator_val)
+
+            matrix[cat_a][cat_b] = round(phi, 6)
+            matrix[cat_b][cat_a] = round(phi, 6)
+
+    return matrix
+
+
+def dimension_aggregation(
+    annotations: list[dict], taxonomy: dict
+) -> dict[str, dict[str, Any]]:
+    """Roll up categories to parent dimensions and compute per-dimension failure rates.
+
+    Parameters
+    ----------
+    annotations : list[dict]
+        List of annotation dicts.
+    taxonomy : dict
+        Taxonomy dict with ``dimensions`` list (v2/v3 format).
+
+    Returns
+    -------
+    dict[str, dict[str, Any]]
+        ``{dimension_name: {"failure_rate": float, "trial_count": int}}``.
+    """
+    # Build category -> dimension mapping
+    cat_to_dim: dict[str, str] = {}
+    for dim in taxonomy.get("dimensions", []):
+        dim_name = dim["name"]
+        for cat in dim.get("categories", []):
+            cat_name = cat["name"] if isinstance(cat, dict) else cat
+            cat_to_dim[cat_name] = dim_name
+
+    # Per-dimension: collect trial indices that have at least one category in that dimension
+    dim_trials: dict[str, list[dict]] = defaultdict(list)
+    for a in annotations:
+        dims_seen: set[str] = set()
+        for cat in a.get("categories", []):
+            dim = cat_to_dim.get(cat["name"])
+            if dim and dim not in dims_seen:
+                dims_seen.add(dim)
+                dim_trials[dim].append(a)
+
+    result: dict[str, dict[str, Any]] = {}
+    for dim_name, trials in sorted(dim_trials.items()):
+        total = len(trials)
+        failed = sum(1 for t in trials if not t.get("passed"))
+        failure_rate = round(failed / total, 4) if total > 0 else 0.0
+        result[dim_name] = {"failure_rate": failure_rate, "trial_count": total}
+
+    return result
+
+
 def _render_markdown(
     stats: dict,
     cat_counts: dict[str, int],
@@ -231,6 +396,8 @@ def _render_markdown(
     polarity_map: dict[str, str],
     generated_at: str,
     paired_comparisons: list[dict] | None = None,
+    cat_counts_with_denominators: dict[str, dict[str, Any]] | None = None,
+    dimension_summary: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Render the Markdown reliability report."""
     lines: list[str] = []
@@ -255,14 +422,57 @@ def _render_markdown(
     lines.append(f"| Benchmarks | {len(stats['benchmarks'])} |")
     lines.append("")
 
-    # Category Frequency
-    lines.append("## Category Frequency")
+    # Category Frequency — split by denominator type
+    denom_data = cat_counts_with_denominators or {}
+
+    # Partition categories into trajectory-dependent and reward-dependent
+    traj_cats = {
+        name: count
+        for name, count in cat_counts.items()
+        if CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+    }
+    reward_cats = {
+        name: count
+        for name, count in cat_counts.items()
+        if not CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+    }
+
+    lines.append("## Trajectory-Dependent Categories")
     lines.append("")
-    lines.append("| # | Category | Polarity | Count |")
-    lines.append("|---|----------|----------|-------|")
-    for i, (name, count) in enumerate(cat_counts.items(), 1):
-        pol = polarity_map.get(name, "unknown")
-        lines.append(f"| {i} | {name} | {pol} | {count:,} |")
+    if traj_cats:
+        # Determine denominator from any trajectory category entry
+        traj_denom = next(
+            (denom_data[n]["denominator"] for n in traj_cats if n in denom_data),
+            stats["total_trials"],
+        )
+        lines.append(f"Denominator: {traj_denom:,} trials with trajectory data")
+        lines.append("")
+        lines.append("| # | Category | Polarity | Count | Rate |")
+        lines.append("|---|----------|----------|-------|------|")
+        for i, (name, count) in enumerate(traj_cats.items(), 1):
+            pol = polarity_map.get(name, "unknown")
+            info = denom_data.get(name, {})
+            rate = info.get("rate", 0.0)
+            lines.append(f"| {i} | {name} | {pol} | {count:,} | {rate:.1%} |")
+    else:
+        lines.append("No trajectory-dependent categories found.")
+    lines.append("")
+
+    lines.append("## Reward-Dependent Categories")
+    lines.append("")
+    if reward_cats:
+        reward_denom = stats["total_trials"]
+        lines.append(f"Denominator: {reward_denom:,} total trials")
+        lines.append("")
+        lines.append("| # | Category | Polarity | Count | Rate |")
+        lines.append("|---|----------|----------|-------|------|")
+        for i, (name, count) in enumerate(reward_cats.items(), 1):
+            pol = polarity_map.get(name, "unknown")
+            info = denom_data.get(name, {})
+            rate = info.get("rate", 0.0)
+            lines.append(f"| {i} | {name} | {pol} | {count:,} | {rate:.1%} |")
+    else:
+        lines.append("No reward-dependent categories found.")
     lines.append("")
 
     # Config Breakdown
@@ -326,6 +536,21 @@ def _render_markdown(
             lines.append(f"| {name} | {count:,} |")
         lines.append("")
 
+    # Dimension Summary
+    if dimension_summary:
+        lines.append("## Dimension Summary")
+        lines.append("")
+        lines.append("| Dimension | Trial Count | Failure Rate |")
+        lines.append("|-----------|-------------|--------------|")
+        for dim_name, info in sorted(
+            dimension_summary.items(), key=lambda x: -x[1]["trial_count"]
+        ):
+            lines.append(
+                f"| {dim_name} | {info['trial_count']:,} "
+                f"| {info['failure_rate']:.1%} |"
+            )
+        lines.append("")
+
     # Top Failure Categories
     lines.append("## Top Failure Categories")
     lines.append("")
@@ -383,11 +608,25 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
 
     stats = _corpus_stats(ann_list)
     cat_counts = _category_counts(ann_list)
+    cat_counts_denom = _category_counts_with_denominators(ann_list)
     cat_by_config = _category_by_config(ann_list)
     cat_by_suite = _category_by_suite(ann_list)
     top_failures = _top_categories_with_examples(ann_list, polarity_map, "failure")
     top_successes = _top_categories_with_examples(ann_list, polarity_map, "success")
     paired_comparisons = _paired_comparison(ann_list)
+
+    # Co-occurrence and dimension aggregation
+    cooccurrence = co_occurrence_matrix(ann_list)
+    try:
+        from agent_diagnostics.taxonomy import load_taxonomy
+
+        taxonomy = load_taxonomy()
+    except Exception:
+        taxonomy = {"dimensions": []}
+    dim_summary = dimension_aggregation(ann_list, taxonomy)
+
+    # Add trajectory-available count to corpus stats
+    stats["trajectory_available"] = _count_trajectory_available(ann_list)
 
     # Markdown report
     md_content = _render_markdown(
@@ -400,6 +639,8 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         polarity_map,
         generated_at,
         paired_comparisons=paired_comparisons,
+        cat_counts_with_denominators=cat_counts_denom,
+        dimension_summary=dim_summary,
     )
     md_path = output_dir / "reliability_report.md"
     md_path.write_text(md_content)
@@ -408,10 +649,12 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
     json_data = {
         "generated_at": generated_at,
         "corpus_stats": stats,
-        "category_counts": cat_counts,
+        "category_counts": cat_counts_denom,
         "category_by_config": cat_by_config,
         "category_by_suite": cat_by_suite,
         "paired_comparisons": paired_comparisons,
+        "co_occurrence": cooccurrence,
+        "dimension_summary": dim_summary,
     }
     json_path = output_dir / "reliability_report.json"
     with open(json_path, "w") as f:

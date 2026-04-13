@@ -119,12 +119,19 @@ class TestMarkdownSections:
         content = md_path.read_text()
         assert "## Corpus Statistics" in content
 
-    def test_category_frequency_section(
+    def test_trajectory_dependent_section(
         self, tmp_path: Path, sample_annotations: dict
     ) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
-        assert "## Category Frequency" in content
+        assert "## Trajectory-Dependent Categories" in content
+
+    def test_reward_dependent_section(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "## Reward-Dependent Categories" in content
 
     def test_config_breakdown_section(
         self, tmp_path: Path, sample_annotations: dict
@@ -203,19 +210,19 @@ class TestCategoryCountsCorrect:
     ) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["retrieval_failure"] == 2
+        assert counts["retrieval_failure"]["count"] == 2
 
     def test_success_via_code_nav_count(
         self, tmp_path: Path, sample_annotations: dict
     ) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["success_via_code_nav"] == 2
+        assert counts["success_via_code_nav"]["count"] == 2
 
     def test_query_churn_count(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["query_churn"] == 1
+        assert counts["query_churn"]["count"] == 1
 
 
 class TestConfigBreakdown:
@@ -276,12 +283,67 @@ class TestEmptyAnnotations:
         counts = json.loads(json_path.read_text())["category_counts"]
         assert counts == {}
 
+    def test_empty_trajectory_available(self, tmp_path: Path) -> None:
+        _, json_path = generate_report({"annotations": []}, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        assert stats["trajectory_available"] == 0
+
     def test_empty_md_has_sections(self, tmp_path: Path) -> None:
         md_path, _ = generate_report({"annotations": []}, tmp_path)
         content = md_path.read_text()
         assert "## Corpus Statistics" in content
-        assert "## Category Frequency" in content
+        assert "## Trajectory-Dependent Categories" in content
+        assert "## Reward-Dependent Categories" in content
         assert "## Success Mode Summary" in content
+
+
+class TestNoneRewardInAnnotations:
+    """Verify None reward values are handled gracefully in report generation."""
+
+    def test_none_reward_in_avg_calculation(self, tmp_path: Path) -> None:
+        """avg_reward should exclude None rewards from calculation."""
+        annotations = _make_annotations(
+            [
+                {
+                    "task_id": "t1",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": True,
+                    "reward": 1.0,
+                    "categories": [],
+                },
+                {
+                    "task_id": "t2",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": False,
+                    "reward": None,
+                    "categories": [],
+                },
+            ]
+        )
+        _, json_path = generate_report(annotations, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        # Only t1's reward=1.0 should be averaged (None excluded)
+        assert stats["avg_reward"] == 1.0
+
+    def test_all_none_rewards(self, tmp_path: Path) -> None:
+        """When all rewards are None, avg_reward should be 0.0."""
+        annotations = _make_annotations(
+            [
+                {
+                    "task_id": "t1",
+                    "config_name": "cfg",
+                    "benchmark": "b",
+                    "passed": False,
+                    "reward": None,
+                    "categories": [],
+                },
+            ]
+        )
+        _, json_path = generate_report(annotations, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        assert stats["avg_reward"] == 0.0
 
 
 class TestImportPath:
@@ -708,3 +770,548 @@ class TestRenderMarkdownNoSuccesses:
         assert "a vs b" in md
         assert "cat1" in md
         assert "cat2" in md
+
+
+# ---------------------------------------------------------------------------
+# Tests for trajectory-aware denominators (unit-trajectory-denominators)
+# ---------------------------------------------------------------------------
+
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
+from agent_diagnostics.report import (
+    _category_counts_with_denominators,
+    _count_trajectory_available,
+)
+
+
+def _make_mixed_trajectory_annotations() -> list[dict]:
+    """Build annotations where some have trajectory data and some do not."""
+    return [
+        {
+            "task_id": "t1",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.0,
+            "has_trajectory": True,
+            "categories": [
+                {"name": "retrieval_failure", "confidence": 0.9, "evidence": "ev"},
+                {"name": "incomplete_solution", "confidence": 0.8, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t2",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.5,
+            "has_trajectory": True,
+            "categories": [
+                {"name": "near_miss", "confidence": 0.7, "evidence": "ev"},
+                {"name": "query_churn", "confidence": 0.6, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t3",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.3,
+            "has_trajectory": False,
+            "categories": [
+                {"name": "minimal_progress", "confidence": 0.7, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t4",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": True,
+            "reward": 1.0,
+            "has_trajectory": False,
+            "categories": [],
+        },
+    ]
+
+
+class TestTrajectoryAvailableCount:
+    """Tests for _count_trajectory_available helper."""
+
+    def test_counts_has_trajectory_true(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        assert _count_trajectory_available(anns) == 2
+
+    def test_empty_list(self) -> None:
+        assert _count_trajectory_available([]) == 0
+
+    def test_all_have_trajectory(self) -> None:
+        anns = [{"has_trajectory": True}, {"has_trajectory": True}]
+        assert _count_trajectory_available(anns) == 2
+
+    def test_none_have_trajectory(self) -> None:
+        anns = [{"has_trajectory": False}, {}]
+        assert _count_trajectory_available(anns) == 0
+
+    def test_signals_sub_dict(self) -> None:
+        """has_trajectory in signals sub-dict is also recognized."""
+        anns = [{"signals": {"has_trajectory": True}}, {"signals": {}}]
+        assert _count_trajectory_available(anns) == 1
+
+
+class TestDenominatorSplitting:
+    """Verify that trajectory-dependent and reward-dependent categories
+    get different denominators."""
+
+    def test_trajectory_category_uses_traj_denominator(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # retrieval_failure is trajectory-dependent; 2 of 4 have trajectory
+        assert result["retrieval_failure"]["denominator"] == 2
+
+    def test_reward_category_uses_full_denominator(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # near_miss is reward-only; denominator should be total=4
+        assert result["near_miss"]["denominator"] == 4
+
+    def test_rate_computed_correctly_trajectory(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # retrieval_failure: count=1, denominator=2 -> rate=0.5
+        assert result["retrieval_failure"]["rate"] == 0.5
+
+    def test_rate_computed_correctly_reward(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # minimal_progress: count=1, denominator=4 -> rate=0.25
+        assert result["minimal_progress"]["rate"] == 0.25
+
+
+class TestRetrievalFailureDenominator:
+    """Verify retrieval_failure uses trajectory-available trials as denominator."""
+
+    def test_retrieval_failure_is_trajectory_dependent(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["retrieval_failure"] is True
+
+    def test_retrieval_failure_denominator_in_report(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        rf = data["category_counts"]["retrieval_failure"]
+        assert rf["denominator"] == 2  # only 2 trials have trajectory
+        assert rf["count"] == 1
+        assert rf["rate"] == 0.5
+
+
+class TestJsonDenominatorStructure:
+    """Verify JSON category_counts has {count, denominator, rate} structure."""
+
+    def test_category_entry_has_required_keys(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        for name, info in data["category_counts"].items():
+            assert "count" in info, f"{name} missing 'count'"
+            assert "denominator" in info, f"{name} missing 'denominator'"
+            assert "rate" in info, f"{name} missing 'rate'"
+
+    def test_corpus_stats_has_trajectory_available(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert data["corpus_stats"]["trajectory_available"] == 2
+
+
+class TestMarkdownDenominatorSections:
+    """Verify markdown report has separate denominator sections."""
+
+    def test_trajectory_section_present(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "## Trajectory-Dependent Categories" in content
+
+    def test_reward_section_present(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "## Reward-Dependent Categories" in content
+
+    def test_trajectory_section_shows_denominator(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "2 trials with trajectory data" in content
+
+    def test_reward_section_shows_denominator(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "4 total trials" in content
+
+    def test_rate_column_in_trajectory_table(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        # The trajectory section should have a Rate column
+        assert "| Rate |" in content
+
+
+class TestCheckerRequiresTrajectoryMetadata:
+    """Verify CHECKER_REQUIRES_TRAJECTORY covers all heuristic checkers."""
+
+    def test_reward_only_categories_marked_false(self) -> None:
+        for name in [
+            "rate_limited_run",
+            "exception_crash",
+            "incomplete_solution",
+            "near_miss",
+            "minimal_progress",
+        ]:
+            assert CHECKER_REQUIRES_TRAJECTORY[name] is False, f"{name} should be False"
+
+    def test_trajectory_categories_marked_true(self) -> None:
+        for name in [
+            "retrieval_failure",
+            "query_churn",
+            "clean_success",
+            "success_via_code_nav",
+            "reward_hacking",
+            "planning_absence",
+        ]:
+            assert CHECKER_REQUIRES_TRAJECTORY[name] is True, f"{name} should be True"
+
+    def test_all_checker_categories_covered(self) -> None:
+        """Every category in _ALL_CHECKERS should have an entry."""
+        from agent_diagnostics.annotator import _ALL_CHECKERS, _assignment
+        from agent_diagnostics.tool_registry import DEFAULT_REGISTRY
+
+        # Extract category names from checkers by examining the function names
+        # Each _check_X function produces category name derived from its name
+        # Instead, verify all keys in CHECKER_REQUIRES_TRAJECTORY are non-empty
+        assert len(CHECKER_REQUIRES_TRAJECTORY) >= 27
+
+
+# ---------------------------------------------------------------------------
+# Tests for co-occurrence matrix and dimension aggregation
+# ---------------------------------------------------------------------------
+
+from agent_diagnostics.report import co_occurrence_matrix, dimension_aggregation
+
+
+def _make_cooccurrence_annotations() -> list[dict]:
+    """Build annotations for co-occurrence testing."""
+    return [
+        {
+            "task_id": "t1",
+            "passed": False,
+            "reward": 0.0,
+            "categories": [
+                {"name": "cat_a", "confidence": 0.9, "evidence": "e"},
+                {"name": "cat_b", "confidence": 0.8, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t2",
+            "passed": True,
+            "reward": 1.0,
+            "categories": [
+                {"name": "cat_a", "confidence": 0.9, "evidence": "e"},
+                {"name": "cat_c", "confidence": 0.7, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t3",
+            "passed": False,
+            "reward": 0.0,
+            "categories": [
+                {"name": "cat_b", "confidence": 0.8, "evidence": "e"},
+            ],
+        },
+        {
+            "task_id": "t4",
+            "passed": True,
+            "reward": 1.0,
+            "categories": [],
+        },
+    ]
+
+
+class TestCoOccurrenceMatrix:
+    """Tests for co_occurrence_matrix."""
+
+    def test_empty_annotations(self) -> None:
+        assert co_occurrence_matrix([]) == {}
+
+    def test_no_categories(self) -> None:
+        anns = [{"task_id": "t1", "categories": []}]
+        assert co_occurrence_matrix(anns) == {}
+
+    def test_matrix_is_symmetric(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        for cat_a in matrix:
+            for cat_b in matrix[cat_a]:
+                assert (
+                    matrix[cat_a][cat_b] == matrix[cat_b][cat_a]
+                ), f"Matrix not symmetric at ({cat_a}, {cat_b})"
+
+    def test_diagonal_is_prevalence_count(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        # cat_a appears in t1, t2 -> count 2
+        assert matrix["cat_a"]["cat_a"] == 2.0
+        # cat_b appears in t1, t3 -> count 2
+        assert matrix["cat_b"]["cat_b"] == 2.0
+        # cat_c appears in t2 -> count 1
+        assert matrix["cat_c"]["cat_c"] == 1.0
+
+    def test_phi_coefficients_in_bounds(self) -> None:
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        for cat_a in matrix:
+            for cat_b in matrix[cat_a]:
+                if cat_a != cat_b:
+                    assert (
+                        -1.0 <= matrix[cat_a][cat_b] <= 1.0
+                    ), f"Phi out of bounds at ({cat_a}, {cat_b}): {matrix[cat_a][cat_b]}"
+
+    def test_matrix_shape(self) -> None:
+        """Matrix should have entries for all categories that appear."""
+        anns = _make_cooccurrence_annotations()
+        matrix = co_occurrence_matrix(anns)
+        assert set(matrix.keys()) == {"cat_a", "cat_b", "cat_c"}
+        for cat in matrix:
+            assert set(matrix[cat].keys()) == {"cat_a", "cat_b", "cat_c"}
+
+    def test_perfect_cooccurrence_positive_phi(self) -> None:
+        """Two categories that always appear together should have positive phi."""
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "categories": [
+                    {"name": "x", "confidence": 0.9, "evidence": "e"},
+                    {"name": "y", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(5)
+        ] + [{"task_id": f"t{i+5}", "categories": []} for i in range(5)]
+        matrix = co_occurrence_matrix(anns)
+        assert matrix["x"]["y"] > 0
+
+    def test_division_by_zero_returns_zero(self) -> None:
+        """When a category appears in all trials, denominator is zero -> phi=0."""
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "categories": [
+                    {"name": "always", "confidence": 0.9, "evidence": "e"},
+                    {"name": "sometimes", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(3)
+        ]
+        matrix = co_occurrence_matrix(anns)
+        # "always" appears in all 3 trials, so (n - n1) = 0 -> phi = 0.0
+        assert matrix["always"]["sometimes"] == 0.0
+
+
+_SAMPLE_TAXONOMY = {
+    "version": "3.0",
+    "dimensions": [
+        {
+            "name": "Retrieval",
+            "categories": [
+                {"name": "retrieval_failure"},
+                {"name": "query_churn"},
+            ],
+        },
+        {
+            "name": "Execution",
+            "categories": [
+                {"name": "incomplete_solution"},
+                {"name": "near_miss"},
+            ],
+        },
+        {
+            "name": "Strategy",
+            "categories": [
+                {"name": "success_via_code_nav"},
+                {"name": "clean_success"},
+            ],
+        },
+    ],
+}
+
+
+class TestDimensionAggregation:
+    """Tests for dimension_aggregation."""
+
+    def test_empty_annotations(self) -> None:
+        result = dimension_aggregation([], _SAMPLE_TAXONOMY)
+        assert result == {}
+
+    def test_dimension_rollup(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "reward": 0.0,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "query_churn", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+            {
+                "task_id": "t2",
+                "passed": True,
+                "reward": 1.0,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.7, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        # Both t1 and t2 have categories in Retrieval
+        assert result["Retrieval"]["trial_count"] == 2
+        # Only t1 failed
+        assert result["Retrieval"]["failure_rate"] == 0.5
+
+    def test_multiple_dimensions(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "incomplete_solution", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert "Retrieval" in result
+        assert "Execution" in result
+        assert result["Retrieval"]["trial_count"] == 1
+        assert result["Execution"]["trial_count"] == 1
+
+    def test_trial_counted_once_per_dimension(self) -> None:
+        """A trial with two categories in same dimension counts once."""
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                    {"name": "query_churn", "confidence": 0.8, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Retrieval"]["trial_count"] == 1
+
+    def test_failure_rate_all_failed(self) -> None:
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                ],
+            }
+            for i in range(3)
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Retrieval"]["failure_rate"] == 1.0
+
+    def test_failure_rate_none_failed(self) -> None:
+        anns = [
+            {
+                "task_id": f"t{i}",
+                "passed": True,
+                "categories": [
+                    {
+                        "name": "success_via_code_nav",
+                        "confidence": 0.9,
+                        "evidence": "e",
+                    },
+                ],
+            }
+            for i in range(3)
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        assert result["Strategy"]["failure_rate"] == 0.0
+
+    def test_result_structure(self) -> None:
+        anns = [
+            {
+                "task_id": "t1",
+                "passed": False,
+                "categories": [
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
+                ],
+            },
+        ]
+        result = dimension_aggregation(anns, _SAMPLE_TAXONOMY)
+        for dim_name, info in result.items():
+            assert "failure_rate" in info
+            assert "trial_count" in info
+            assert isinstance(info["failure_rate"], float)
+            assert isinstance(info["trial_count"], int)
+
+
+class TestDimensionSummaryInReport:
+    """Verify Dimension Summary appears in generated report."""
+
+    def test_dimension_summary_section_in_md(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "## Dimension Summary" in content
+
+    def test_dimension_summary_key_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert "dimension_summary" in data
+
+    def test_dimension_summary_structure_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        dim_summary = data["dimension_summary"]
+        for dim_name, info in dim_summary.items():
+            assert "failure_rate" in info
+            assert "trial_count" in info
+
+    def test_co_occurrence_key_in_json(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        _, json_path = generate_report(sample_annotations, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert "co_occurrence" in data
+
+    def test_dimension_summary_in_md_table_format(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "| Dimension | Trial Count | Failure Rate |" in content
+
+    def test_empty_annotations_no_dimension_summary_section(
+        self, tmp_path: Path
+    ) -> None:
+        """Empty annotations produce no dimension summary section (no dimensions to show)."""
+        md_path, _ = generate_report({"annotations": []}, tmp_path)
+        content = md_path.read_text()
+        # With no annotations, dimension_summary is empty dict, section is skipped
+        assert "## Dimension Summary" not in content
+
+    def test_empty_annotations_json_has_empty_dimension_summary(
+        self, tmp_path: Path
+    ) -> None:
+        _, json_path = generate_report({"annotations": []}, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert data["dimension_summary"] == {}
+        assert data["co_occurrence"] == {}

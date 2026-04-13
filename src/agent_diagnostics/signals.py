@@ -12,15 +12,51 @@ import warnings
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS  # noqa: F401
-from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
+from agent_diagnostics.tool_registry import (
+    DEFAULT_REGISTRY,
+    ToolRegistry,
+    get_registry_for_agent,
+)
 from agent_diagnostics.types import TrialSignals
+
+# Sentinel object to detect when tool_registry was not explicitly provided.
+_REGISTRY_NOT_SET: ToolRegistry = ToolRegistry(
+    search_tools=frozenset(),
+    edit_tools=frozenset(),
+    code_nav_tools=frozenset(),
+    semantic_search_tools=frozenset(),
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+_EXCLUDED_DIR_PATTERNS: tuple[str, ...] = (
+    "__archived_invalid",
+    "__incomplete",
+    "__pre_sgenv_fix",
+    "__verifier_path_bug",
+    "__doubled_prefix",
+)
+
+
+def _is_valid_trial(data: dict[str, Any]) -> bool:
+    """Check whether *data* (from result.json) represents a valid trial.
+
+    Returns ``False`` for harness summaries and other non-trial records
+    that lack the ``agent_info`` key.
+    """
+    return "agent_info" in data
+
+
+def _is_excluded_path(trial_dir: Path) -> bool:
+    """Return ``True`` if any path component matches an excluded pattern."""
+    parts = trial_dir.parts
+    return any(pattern in parts for pattern in _EXCLUDED_DIR_PATTERNS)
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -274,34 +310,93 @@ def _resolve_model(
 # ---------------------------------------------------------------------------
 
 
+# Known directory-name patterns mapping substrings to benchmark names.
+_DIRECTORY_BENCHMARK_PATTERNS: dict[str, str] = {
+    "crossrepo": "crossrepo",
+    "openhands": "openhands",
+    "swe-bench": "swe-bench",
+    "swe_bench": "swe-bench",
+}
+
+
+def load_manifest(path: Path) -> dict[str, str]:
+    """Parse a MANIFEST.json file and return a suite_mapping dict.
+
+    The manifest maps run directory names to benchmark names, e.g.::
+
+        {
+            "csb_crossrepo_run1": "crossrepo",
+            "openhands_eval_42": "openhands"
+        }
+
+    Returns an empty dict if the file is missing or malformed.
+    """
+    data = _load_json(path)
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(k): str(v)
+        for k, v in data.items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
+
+
+def _resolve_benchmark_from_directory(trial_dir: Path) -> str | None:
+    """Resolve benchmark name from directory-name conventions.
+
+    Checks path components for known benchmark substrings such as
+    ``crossrepo``, ``openhands``, and ``swe-bench``/``swe_bench``.
+    """
+    parts_to_check = (
+        trial_dir.parts[-4:] if len(trial_dir.parts) >= 4 else trial_dir.parts
+    )
+    for part in parts_to_check:
+        part_lower = part.lower()
+        for pattern, benchmark in _DIRECTORY_BENCHMARK_PATTERNS.items():
+            if pattern in part_lower:
+                return benchmark
+    return None
+
+
 def _resolve_benchmark(
     task_id: str | None,
     suite_mapping: dict[str, str] | None,
     benchmark_resolver: Callable[[Path], str | None] | None,
     trial_dir: Path,
-) -> str | None:
-    """Resolve benchmark name via suite_mapping prefix match or callable."""
+) -> tuple[str | None, str]:
+    """Resolve benchmark name via suite_mapping prefix match or callable.
+
+    Returns a tuple of ``(benchmark_name, source)`` where *source* is one of
+    ``"manifest"`` (resolved via suite_mapping or benchmark_resolver),
+    ``"directory"`` (resolved via directory-name convention), or ``""``
+    (unresolved).
+    """
     # Try benchmark_resolver first (most specific)
     if benchmark_resolver is not None:
         result = benchmark_resolver(trial_dir)
         if result:
-            return result
+            return result, "manifest"
 
     # Try suite_mapping prefix match against task_id
     if suite_mapping and task_id:
         # Sort by descending prefix length for correct longest-match
         for prefix in sorted(suite_mapping, key=len, reverse=True):
             if task_id.startswith(prefix):
-                return suite_mapping[prefix]
+                return suite_mapping[prefix], "manifest"
 
     # Try suite_mapping prefix match against directory name
     if suite_mapping:
         dir_name = trial_dir.name
         for prefix in sorted(suite_mapping, key=len, reverse=True):
             if dir_name.startswith(prefix):
-                return suite_mapping[prefix]
+                return suite_mapping[prefix], "manifest"
 
-    return None
+    # Try directory-name convention fallback
+    dir_result = _resolve_benchmark_from_directory(trial_dir)
+    if dir_result:
+        return dir_result, "directory"
+
+    return None, ""
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +407,7 @@ def _resolve_benchmark(
 def extract_signals(
     trial_dir: Path,
     *,
-    tool_registry: ToolRegistry = DEFAULT_REGISTRY,
+    tool_registry: ToolRegistry = _REGISTRY_NOT_SET,
     suite_mapping: dict[str, str] | None = None,
     benchmark_resolver: Callable[[Path], str | None] | None = None,
     task_id_normalizer: Callable[[str], str] | None = None,
@@ -324,12 +419,17 @@ def extract_signals(
     produces a :class:`TrialSignals` dict with all 26 keys populated
     (or set to sensible defaults when data is missing).
 
+    When *tool_registry* is not explicitly provided, the function reads
+    ``result.json``'s ``agent_info.name`` field and auto-selects the
+    appropriate registry via :func:`get_registry_for_agent`.
+
     Parameters
     ----------
     trial_dir:
         Path to a trial directory (should contain ``result.json``).
     tool_registry:
-        Tool name classification registry.  Defaults to
+        Tool name classification registry.  When omitted, auto-detected
+        from ``agent_info.name`` in ``result.json``; falls back to
         :data:`DEFAULT_REGISTRY`.
     suite_mapping:
         Optional ``{prefix: benchmark_name}`` dict for benchmark
@@ -363,6 +463,14 @@ def extract_signals(
     has_result_json = result is not None
     has_trajectory = traj is not None
 
+    # --- Auto-detect tool registry from agent_info.name ---
+    if tool_registry is _REGISTRY_NOT_SET:
+        agent_name = _get_nested(result, "agent_info", "name")
+        if agent_name and isinstance(agent_name, str):
+            tool_registry = get_registry_for_agent(agent_name)
+        else:
+            tool_registry = DEFAULT_REGISTRY
+
     # --- Reward / passed ---
     reward: float | None = None
     if result:
@@ -385,7 +493,7 @@ def extract_signals(
         config_name = _get_nested(result, "config", "name")
 
     # --- Benchmark ---
-    benchmark = _resolve_benchmark(
+    benchmark, benchmark_source = _resolve_benchmark(
         task_id, suite_mapping, benchmark_resolver, trial_dir
     )
 
@@ -417,8 +525,9 @@ def extract_signals(
         "model": model or "",
         "config_name": config_name or "",
         "benchmark": benchmark or "",
-        "reward": reward if reward is not None else 0.0,
+        "reward": reward,
         "passed": passed,
+        "has_verifier_result": reward is not None,
         "total_turns": traj_signals["total_turns"],
         "tool_calls_total": traj_signals["tool_calls_total"],
         "search_tool_calls": traj_signals["search_tool_calls"],
@@ -439,6 +548,7 @@ def extract_signals(
         "exception_crashed": exception_crashed,
         "patch_size_lines": traj_signals["patch_size_lines"],
         "tool_call_sequence": traj_signals["tool_call_sequence"],
+        "benchmark_source": benchmark_source,
     }
 
     return signals
@@ -469,7 +579,7 @@ def judge_safe_signals(signals: dict[str, Any]) -> dict[str, Any]:
 def extract_all(
     root_dir: Path,
     *,
-    tool_registry: ToolRegistry = DEFAULT_REGISTRY,
+    tool_registry: ToolRegistry = _REGISTRY_NOT_SET,
     suite_mapping: dict[str, str] | None = None,
     benchmark_resolver: Callable[[Path], str | None] | None = None,
     task_id_normalizer: Callable[[str], str] | None = None,
@@ -494,6 +604,16 @@ def extract_all(
     results: list[TrialSignals] = []
     for result_file in sorted(root_dir.rglob("result.json")):
         trial_dir = result_file.parent
+
+        # Skip directories matching excluded patterns
+        if _is_excluded_path(trial_dir):
+            continue
+
+        # Skip invalid trials (e.g. harness summaries without agent_info)
+        data = _load_json(result_file)
+        if data is None or not _is_valid_trial(data):
+            continue
+
         signals = extract_signals(
             trial_dir,
             tool_registry=tool_registry,
@@ -504,3 +624,151 @@ def extract_all(
         )
         results.append(signals)
     return results
+
+
+# ---------------------------------------------------------------------------
+# JSONL / JSON IO helpers
+# ---------------------------------------------------------------------------
+
+_SIGNALS_SCHEMA_VERSION = "observatory-signals-v1"
+
+
+def _meta_path_for(path: Path) -> Path:
+    """Return the sidecar .meta.json path for a given .jsonl file."""
+    return path.with_suffix(".meta.json")
+
+
+def write_jsonl(
+    data_list: Sequence[dict[str, Any]],
+    path: Path,
+    *,
+    schema_version: str = _SIGNALS_SCHEMA_VERSION,
+    taxonomy_version: str | None = None,
+) -> Path:
+    """Write *data_list* as JSONL (one JSON object per line) with a sidecar.
+
+    Creates ``<path>`` with one JSON object per line and a
+    ``<path>.meta.json`` sidecar containing ``schema_version``,
+    ``taxonomy_version``, and ``generated_at``.
+
+    Returns the path to the sidecar file.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w") as f:
+        for item in data_list:
+            f.write(json.dumps(item, default=str) + "\n")
+
+    meta = {
+        "schema_version": schema_version,
+        "taxonomy_version": taxonomy_version or "",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    meta_file = _meta_path_for(path)
+    with open(meta_file, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    return meta_file
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Load a JSONL file, returning a list of dicts (one per line)."""
+    path = Path(path)
+    results: list[dict[str, Any]] = []
+    with open(path) as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped:
+                results.append(json.loads(stripped))
+    return results
+
+
+def load_signals(path: str | Path) -> list[dict[str, Any]]:
+    """Load signals from a ``.json`` or ``.jsonl`` file transparently.
+
+    For ``.jsonl`` files, reads one JSON object per line.
+    For ``.json`` files, reads the entire file as a JSON array.
+
+    Returns a list of signal dicts.
+    """
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        return load_jsonl(path)
+    with open(path) as f:
+        data = json.load(f)
+    if isinstance(data, list):
+        return data
+    raise ValueError(f"Expected a JSON array in {path}, got {type(data).__name__}")
+
+
+def load_annotations(path: str | Path) -> dict[str, Any]:
+    """Load annotations from a ``.json`` or ``.jsonl`` file transparently.
+
+    For ``.json`` files, returns the parsed dict directly (envelope format).
+    For ``.jsonl`` files, reads one annotation per line and reconstructs
+    the envelope from the ``.meta.json`` sidecar.
+
+    Returns a dict with at least ``"annotations"`` key.
+    """
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        items = load_jsonl(path)
+        meta_file = _meta_path_for(path)
+        meta: dict[str, Any] = {}
+        if meta_file.is_file():
+            with open(meta_file) as f:
+                meta = json.load(f)
+        return {
+            "schema_version": meta.get("schema_version", ""),
+            "taxonomy_version": meta.get("taxonomy_version", ""),
+            "generated_at": meta.get("generated_at", ""),
+            "annotations": items,
+        }
+    with open(path) as f:
+        return json.load(f)
+
+
+def is_jsonl_path(path: str | Path) -> bool:
+    """Return True if *path* ends with ``.jsonl``."""
+    return Path(path).suffix == ".jsonl"
+
+
+def write_output(
+    data: list[dict[str, Any]] | dict[str, Any],
+    path: str | Path,
+    *,
+    schema_version: str = _SIGNALS_SCHEMA_VERSION,
+    taxonomy_version: str | None = None,
+) -> None:
+    """Write *data* as JSON or JSONL based on output path extension.
+
+    For ``.jsonl`` paths, *data* must be a list (or a dict with an
+    ``"annotations"`` key whose value is a list).  Each item is written
+    as one line, and a ``.meta.json`` sidecar is created.
+
+    For ``.json`` paths, uses ``json.dump`` with indent=2 (legacy format).
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if is_jsonl_path(path):
+        # Extract the list of items to write line-by-line
+        if isinstance(data, dict):
+            items = data.get("annotations", [])
+            # Preserve taxonomy_version from the envelope if not explicitly set
+            if taxonomy_version is None:
+                taxonomy_version = data.get("taxonomy_version")
+            if schema_version == _SIGNALS_SCHEMA_VERSION:
+                schema_version = data.get("schema_version", schema_version)
+        else:
+            items = data
+        write_jsonl(
+            items,
+            path,
+            schema_version=schema_version,
+            taxonomy_version=taxonomy_version,
+        )
+    else:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, default=str)

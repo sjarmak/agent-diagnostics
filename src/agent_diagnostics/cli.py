@@ -8,7 +8,7 @@ from pathlib import Path
 
 def cmd_extract(args):
     """Extract signals from trial directories."""
-    from agent_diagnostics.signals import extract_all
+    from agent_diagnostics.signals import extract_all, write_output
 
     runs_dir = Path(args.runs_dir)
     if not runs_dir.is_dir():
@@ -18,9 +18,7 @@ def cmd_extract(args):
     signals = extract_all(runs_dir)
 
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump(signals, f, indent=2, default=str)
+    write_output(signals, output)
 
     print(f"Extracted signals from {len(signals)} trials", file=sys.stderr)
 
@@ -28,21 +26,19 @@ def cmd_extract(args):
 def cmd_annotate(args):
     """Generate heuristic annotations from extracted signals."""
     from agent_diagnostics.annotator import annotate_all
+    from agent_diagnostics.signals import load_signals, write_output
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
         print(f"Error: signals file not found: {signals_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(signals_path) as f:
-        signals_list = json.load(f)
+    signals_list = load_signals(signals_path)
 
     annotations = annotate_all(signals_list)
 
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump(annotations, f, indent=2, default=str)
+    write_output(annotations, output)
 
     total_categories = sum(len(a["categories"]) for a in annotations["annotations"])
     print(
@@ -257,6 +253,103 @@ def cmd_ensemble(args):
     )
 
 
+def cmd_ingest(args):
+    """Run filter -> extract -> enrich -> write JSONL pipeline in one command."""
+    from agent_diagnostics.signals import (
+        _is_excluded_path,
+        _is_valid_trial,
+        _load_json,
+        extract_signals,
+        load_manifest,
+        write_jsonl,
+    )
+
+    runs_dir = Path(args.runs_dir)
+    if not runs_dir.is_dir():
+        print(f"Error: runs directory not found: {runs_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load manifest for benchmark resolution
+    suite_mapping: dict[str, str] | None = None
+    if args.manifest:
+        manifest_path = Path(args.manifest)
+        if not manifest_path.is_file():
+            print(f"Error: manifest file not found: {manifest_path}", file=sys.stderr)
+            sys.exit(1)
+        suite_mapping = load_manifest(manifest_path)
+
+    # Load state file for incremental mode
+    state: dict[str, dict[str, object]] = {}
+    state_path: Path | None = None
+    if args.state:
+        state_path = Path(args.state)
+        if state_path.is_file():
+            loaded = _load_json(state_path)
+            if isinstance(loaded, dict):
+                state = loaded
+
+    # Walk runs_dir finding result.json files
+    signals_list: list[dict[str, object]] = []
+    skipped = 0
+    for result_file in sorted(runs_dir.rglob("result.json")):
+        trial_dir = result_file.parent
+
+        if _is_excluded_path(trial_dir):
+            continue
+
+        data = _load_json(result_file)
+        if data is None or not _is_valid_trial(data):
+            continue
+
+        # Incremental mode: check mtime/size
+        trial_key = str(trial_dir)
+        if state_path is not None:
+            stat = result_file.stat()
+            current_mtime = stat.st_mtime
+            current_size = stat.st_size
+            prev = state.get(trial_key)
+            if (
+                prev is not None
+                and prev.get("mtime") == current_mtime
+                and prev.get("size") == current_size
+            ):
+                skipped += 1
+                continue
+
+        signals = extract_signals(
+            trial_dir,
+            suite_mapping=suite_mapping,
+        )
+        # Add trial_path for downstream traceability
+        signals["trial_path"] = str(trial_dir)
+        signals_list.append(signals)
+
+        # Update state entry
+        if state_path is not None:
+            stat = result_file.stat()
+            state[trial_key] = {
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+            }
+
+    # Write output as JSONL
+    output = Path(args.output)
+    write_jsonl(signals_list, output)
+
+    # Save state file
+    if state_path is not None:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(state_path, "w") as f:
+            json.dump(state, f, indent=2)
+
+    print(
+        f"Ingested {len(signals_list)} trials"
+        + (f" (skipped {skipped} unchanged)" if skipped else "")
+        + f" -> {output}",
+        file=sys.stderr,
+    )
+
+
 def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
@@ -449,6 +542,21 @@ def main():
         help="Minimum train accuracy to use classifier (default: 0.7)",
     )
     p_ensemble.set_defaults(func=cmd_ensemble)
+
+    # ingest
+    p_ingest = subparsers.add_parser(
+        "ingest",
+        help="Run filter -> extract -> enrich -> write JSONL pipeline",
+    )
+    p_ingest.add_argument("--runs-dir", required=True, help="Path to runs directory")
+    p_ingest.add_argument("--output", required=True, help="Output JSONL file")
+    p_ingest.add_argument(
+        "--manifest", default=None, help="MANIFEST.json for benchmark resolution"
+    )
+    p_ingest.add_argument(
+        "--state", default=None, help="State JSON file for incremental mode"
+    )
+    p_ingest.set_defaults(func=cmd_ingest)
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate annotation files")

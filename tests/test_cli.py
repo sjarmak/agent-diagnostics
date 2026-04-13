@@ -41,6 +41,7 @@ def test_help_output_includes_all_subcommands():
         "train",
         "predict",
         "ensemble",
+        "ingest",
         "validate",
     ]
     for sub in expected_subcommands:
@@ -98,6 +99,245 @@ def test_pyproject_has_scripts_entry():
     content = pyproject_path.read_text()
     assert "[project.scripts]" in content
     assert 'observatory = "agent_diagnostics.cli:main"' in content
+
+
+# ---------------------------------------------------------------------------
+# cmd_extract tests
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Helper: create a minimal valid trial directory
+# ---------------------------------------------------------------------------
+
+
+def _make_trial(parent: Path, name: str = "trial1", **result_overrides) -> Path:
+    """Create a trial directory with a valid result.json."""
+    trial_dir = parent / name
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    result = {
+        "task_name": "test_task",
+        "agent_info": {"name": "test-agent"},
+        "verifier_result": {"rewards": {"reward": 1.0}},
+        **result_overrides,
+    }
+    (trial_dir / "result.json").write_text(json.dumps(result))
+    return trial_dir
+
+
+# ---------------------------------------------------------------------------
+# cmd_ingest tests
+# ---------------------------------------------------------------------------
+
+
+class TestCmdIngest:
+    """Tests for cmd_ingest."""
+
+    def test_missing_runs_dir_exits(self, tmp_path):
+        from agent_diagnostics.cli import cmd_ingest
+
+        args = argparse.Namespace(
+            runs_dir=str(tmp_path / "nonexistent"),
+            output=str(tmp_path / "out.jsonl"),
+            manifest=None,
+            state=None,
+        )
+        with pytest.raises(SystemExit):
+            cmd_ingest(args)
+
+    def test_basic_ingest(self, tmp_path):
+        """Ingest writes JSONL output with one trial per line."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+        _make_trial(runs_dir, "trial2")
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        assert output.exists()
+        lines = [json.loads(line) for line in output.read_text().strip().splitlines()]
+        assert len(lines) == 2
+        # Each line should have trial_path set
+        for line in lines:
+            assert "trial_path" in line
+            assert "task_id" in line
+
+    def test_invalid_trial_filtered(self, tmp_path):
+        """Harness summaries without agent_info are skipped."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        # Valid trial
+        _make_trial(runs_dir, "valid_trial")
+        # Invalid trial (no agent_info = harness summary)
+        invalid_dir = runs_dir / "summary"
+        invalid_dir.mkdir(parents=True)
+        (invalid_dir / "result.json").write_text(json.dumps({"summary": True}))
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+    def test_excluded_path_filtered(self, tmp_path):
+        """Trials in excluded directories are skipped."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "good_trial")
+        _make_trial(runs_dir / "__archived_invalid", "bad_trial")
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+    def test_manifest_flag(self, tmp_path):
+        """--manifest loads suite_mapping and passes it to extract_signals."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+
+        manifest = tmp_path / "MANIFEST.json"
+        manifest.write_text(json.dumps({"test_task": "my-benchmark"}))
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=str(manifest),
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = [json.loads(line) for line in output.read_text().strip().splitlines()]
+        assert len(lines) == 1
+        assert lines[0]["benchmark"] == "my-benchmark"
+
+    def test_manifest_missing_exits(self, tmp_path):
+        """--manifest with nonexistent file exits with error."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(tmp_path / "out.jsonl"),
+            manifest=str(tmp_path / "missing_manifest.json"),
+            state=None,
+        )
+        with pytest.raises(SystemExit):
+            cmd_ingest(args)
+
+    def test_state_file_creation(self, tmp_path):
+        """--state creates a state file with mtime/size entries."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        trial = _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+        cmd_ingest(args)
+
+        assert state_file.exists()
+        state = json.loads(state_file.read_text())
+        assert str(trial) in state
+        entry = state[str(trial)]
+        assert "mtime" in entry
+        assert "size" in entry
+
+    def test_incremental_skip(self, tmp_path):
+        """Running ingest twice with no changes skips unchanged trials."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+
+        base_args = dict(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+
+        # First run: extracts the trial
+        cmd_ingest(argparse.Namespace(**base_args))
+        lines_first = output.read_text().strip().splitlines()
+        assert len(lines_first) == 1
+
+        # Second run: trial unchanged, should be skipped
+        cmd_ingest(argparse.Namespace(**base_args))
+        lines_second = output.read_text().strip().splitlines()
+        # Output should be empty (0 new trials extracted)
+        assert len(lines_second) == 0
+
+    def test_incremental_reextracts_changed(self, tmp_path):
+        """Modified trial is re-extracted on second run."""
+        import time
+
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        trial = _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+
+        base_args = dict(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+
+        # First run
+        cmd_ingest(argparse.Namespace(**base_args))
+        assert len(output.read_text().strip().splitlines()) == 1
+
+        # Modify the result.json (change content to change size, touch for mtime)
+        time.sleep(0.05)  # ensure mtime differs
+        result_path = trial / "result.json"
+        data = json.loads(result_path.read_text())
+        data["extra_field"] = "changed"
+        result_path.write_text(json.dumps(data))
+
+        # Second run: should re-extract
+        cmd_ingest(argparse.Namespace(**base_args))
+        assert len(output.read_text().strip().splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -566,3 +806,128 @@ class TestMain:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# JSONL format support in CLI commands
+# ---------------------------------------------------------------------------
+
+
+class TestCmdExtractJsonl:
+    """Tests for cmd_extract with .jsonl output."""
+
+    @patch("agent_diagnostics.signals.extract_all")
+    def test_jsonl_output(self, mock_extract, tmp_path):
+        from agent_diagnostics.cli import cmd_extract
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+        mock_extract.return_value = [{"trial_id": "t1"}, {"trial_id": "t2"}]
+
+        output = tmp_path / "signals.jsonl"
+        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output))
+        cmd_extract(args)
+
+        assert output.exists()
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0]) == {"trial_id": "t1"}
+        assert json.loads(lines[1]) == {"trial_id": "t2"}
+
+        # Check meta sidecar
+        meta_path = output.with_suffix(".meta.json")
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert "schema_version" in meta
+        assert "taxonomy_version" in meta
+        assert "generated_at" in meta
+
+    @patch("agent_diagnostics.signals.extract_all")
+    def test_json_output_still_works(self, mock_extract, tmp_path):
+        from agent_diagnostics.cli import cmd_extract
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+        mock_extract.return_value = [{"trial_id": "t1"}]
+
+        output = tmp_path / "signals.json"
+        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output))
+        cmd_extract(args)
+
+        assert output.exists()
+        data = json.loads(output.read_text())
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+
+class TestCmdAnnotateJsonl:
+    """Tests for cmd_annotate with .jsonl input/output."""
+
+    def test_jsonl_input_and_output(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate
+        from agent_diagnostics.signals import write_jsonl
+
+        import agent_diagnostics.annotator as _ann_mod
+
+        # Write signals as JSONL
+        signals_data = [{"trial_id": "t1"}, {"trial_id": "t2"}]
+        signals_file = tmp_path / "signals.jsonl"
+        write_jsonl(signals_data, signals_file)
+
+        mock_annotate = MagicMock(
+            return_value={
+                "schema_version": "observatory-annotation-v1",
+                "taxonomy_version": "3.0",
+                "annotations": [
+                    {"task_id": "t1", "categories": [{"name": "cat1"}]},
+                    {"task_id": "t2", "categories": []},
+                ],
+            }
+        )
+        _ann_mod.annotate_all = mock_annotate
+        try:
+            output = tmp_path / "annotations.jsonl"
+            args = argparse.Namespace(signals=str(signals_file), output=str(output))
+            cmd_annotate(args)
+
+            mock_annotate.assert_called_once()
+            assert output.exists()
+
+            lines = output.read_text().strip().splitlines()
+            assert len(lines) == 2
+
+            meta_path = output.with_suffix(".meta.json")
+            assert meta_path.exists()
+            meta = json.loads(meta_path.read_text())
+            assert meta["schema_version"] == "observatory-annotation-v1"
+            assert meta["taxonomy_version"] == "3.0"
+        finally:
+            if hasattr(_ann_mod, "annotate_all"):
+                del _ann_mod.annotate_all
+
+    def test_json_input_jsonl_output(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate
+
+        import agent_diagnostics.annotator as _ann_mod
+
+        # Write signals as JSON (legacy)
+        signals_file = tmp_path / "signals.json"
+        signals_file.write_text(json.dumps([{"trial_id": "t1"}]))
+
+        mock_annotate = MagicMock(
+            return_value={
+                "annotations": [{"task_id": "t1", "categories": [{"name": "cat1"}]}]
+            }
+        )
+        _ann_mod.annotate_all = mock_annotate
+        try:
+            output = tmp_path / "annotations.jsonl"
+            args = argparse.Namespace(signals=str(signals_file), output=str(output))
+            cmd_annotate(args)
+
+            assert output.exists()
+            lines = output.read_text().strip().splitlines()
+            assert len(lines) == 1
+        finally:
+            if hasattr(_ann_mod, "annotate_all"):
+                del _ann_mod.annotate_all

@@ -6,7 +6,7 @@ from agent_diagnostics.annotator import annotate_trial
 from agent_diagnostics.ensemble import ensemble_all, ensemble_annotate
 from agent_diagnostics.llm_annotator import annotate_trial_llm
 from agent_diagnostics.report import generate_report
-from agent_diagnostics.signals import extract_all, extract_signals
+from agent_diagnostics.signals import extract_all, extract_signals, load_manifest
 from agent_diagnostics.taxonomy import (
     load_taxonomy,
     valid_category_names,
@@ -35,6 +35,7 @@ __all__ = [
     "ensemble_annotate",
     "extract_all",
     "extract_signals",
+    "load_manifest",
     "generate_report",
     "load_taxonomy",
     "valid_category_names",
