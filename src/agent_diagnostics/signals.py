@@ -310,7 +310,8 @@ def _resolve_model(
 # ---------------------------------------------------------------------------
 
 
-# Known directory-name patterns mapping substrings to benchmark names.
+# Known directory-name substrings mapping to benchmark names (fallback for
+# names that lack a structural marker like a model or date token).
 _DIRECTORY_BENCHMARK_PATTERNS: dict[str, str] = {
     "crossrepo": "crossrepo",
     "openhands": "openhands",
@@ -318,35 +319,138 @@ _DIRECTORY_BENCHMARK_PATTERNS: dict[str, str] = {
     "swe_bench": "swe-bench",
 }
 
+# Tokens that indicate the benchmark prefix has ended and model/date suffix
+# has begun when parsing a structured run-directory name.
+_MODEL_TOKENS: frozenset[str] = frozenset(
+    {
+        "haiku",
+        "haiku4",
+        "haiku45",
+        "haiku46",
+        "sonnet",
+        "sonnet4",
+        "sonnet45",
+        "sonnet46",
+        "opus",
+        "opus4",
+        "opus45",
+        "opus46",
+        "cc",
+        "oh",
+        "claude",
+        "claude46",
+        "gpt",
+        "gpt4",
+        "gpt5",
+        "cursor",
+    }
+)
+
+# Family prefixes stripped before extracting the benchmark name.
+_FAMILY_PREFIXES: frozenset[str] = frozenset({"csb", "ccb"})
+
+
+def _parse_benchmark_from_run_name(dir_name: str) -> str | None:
+    """Extract a benchmark prefix from a structured run directory name.
+
+    A run directory name is recognized by the presence of a model token
+    (e.g., ``haiku``, ``sonnet46``, ``opus``) or a 4+ digit date token.
+    The benchmark is the portion before that marker, with an optional
+    leading ``csb_``/``ccb_`` family prefix stripped.
+
+    Examples::
+
+        csb_sdlc_fix_haiku_20260228_123456 -> "sdlc_fix"
+        csb_org_crossrepo_tracing_sonnet46  -> "org_crossrepo_tracing"
+        openhands_haiku45_20260301          -> "openhands"
+        crossrepo_opus_20260202_204730      -> "crossrepo"
+        _browse_cc_sonnet46                 -> "browse"
+        bigcode_mcp_opus_20260204_023501    -> "bigcode_mcp"
+        home / ds / projects                -> None (no marker)
+    """
+    name = dir_name.lstrip("_").split("__", 1)[0]
+    if not name or "_" not in name:
+        return None
+
+    parts = name.split("_")
+    if parts and parts[0].lower() in _FAMILY_PREFIXES:
+        parts = parts[1:]
+
+    clean: list[str] = []
+    saw_marker = False
+    for p in parts:
+        p_lower = p.lower()
+        if p_lower in _MODEL_TOKENS or (p.isdigit() and len(p) >= 4):
+            saw_marker = True
+            break
+        clean.append(p_lower)
+
+    if not saw_marker or not clean:
+        return None
+    return "_".join(clean)
+
 
 def load_manifest(path: Path) -> dict[str, str]:
-    """Parse a MANIFEST.json file and return a suite_mapping dict.
+    """Parse a MANIFEST.json file and return a ``{task_id: benchmark}`` map.
 
-    The manifest maps run directory names to benchmark names, e.g.::
+    Supports two shapes:
 
-        {
-            "csb_crossrepo_run1": "crossrepo",
-            "openhands_eval_42": "openhands"
-        }
+    1. **Nested run-history manifest** — a dict containing a
+       ``run_history`` key whose value maps ``"<bench_key>/<config>"``
+       entries to nested ``{task_id: stats}`` dicts.  The benchmark name
+       is derived from the portion of ``bench_key`` before any ``/``,
+       with an optional ``ccb_``/``csb_`` family prefix stripped.
 
-    Returns an empty dict if the file is missing or malformed.
+    2. **Flat legacy mapping** — a dict of ``{prefix_or_task_id: benchmark}``
+       strings used by unit-test fixtures and simpler deployments.
+
+    Returns an empty dict if the file is missing, malformed, or has no
+    recognizable content.
     """
     data = _load_json(path)
     if not isinstance(data, dict):
         return {}
-    return {
-        str(k): str(v)
-        for k, v in data.items()
-        if isinstance(k, str) and isinstance(v, str)
-    }
+
+    mapping: dict[str, str] = {}
+
+    # Shape 1: nested run-history manifest.
+    rh = data.get("run_history")
+    if isinstance(rh, dict):
+        for bench_key, tasks in rh.items():
+            if not isinstance(bench_key, str) or not isinstance(tasks, dict):
+                continue
+            bench_name = bench_key.split("/", 1)[0]
+            if bench_name.lower().startswith(("ccb_", "csb_")):
+                bench_name = bench_name.split("_", 1)[1]
+            for task_id in tasks:
+                if isinstance(task_id, str):
+                    mapping.setdefault(task_id, bench_name)
+        if mapping:
+            return mapping
+
+    # Shape 2: flat legacy mapping of string->string entries.
+    for k, v in data.items():
+        if isinstance(k, str) and isinstance(v, str):
+            mapping[k] = v
+    return mapping
 
 
 def _resolve_benchmark_from_directory(trial_dir: Path) -> str | None:
     """Resolve benchmark name from directory-name conventions.
 
-    Checks path components for known benchmark substrings such as
-    ``crossrepo``, ``openhands``, and ``swe-bench``/``swe_bench``.
+    Walks every path component of *trial_dir* from outermost to
+    innermost, returning the first successful parse via
+    :func:`_parse_benchmark_from_run_name`.  As a fallback, matches
+    substrings from :data:`_DIRECTORY_BENCHMARK_PATTERNS` (for names
+    that lack a structural model/date marker).
     """
+    # Prefer structural parsing on each ancestor (outer → inner).
+    for part in trial_dir.parts:
+        parsed = _parse_benchmark_from_run_name(part)
+        if parsed:
+            return parsed
+
+    # Substring fallback for names without a structural marker.
     parts_to_check = (
         trial_dir.parts[-4:] if len(trial_dir.parts) >= 4 else trial_dir.parts
     )
@@ -377,11 +481,18 @@ def _resolve_benchmark(
         if result:
             return result, "manifest"
 
-    # Try suite_mapping prefix match against task_id
+    # Try suite_mapping against task_id: exact match wins, then token-bounded
+    # prefix match (longest first). Token-bounded means the match boundary is
+    # either inside the prefix (trailing "_"/"-") or immediately before the
+    # next token, so "task-1" does not wrongly match "task-10".
     if suite_mapping and task_id:
-        # Sort by descending prefix length for correct longest-match
+        if task_id in suite_mapping:
+            return suite_mapping[task_id], "manifest"
         for prefix in sorted(suite_mapping, key=len, reverse=True):
-            if task_id.startswith(prefix):
+            if not prefix or not task_id.startswith(prefix):
+                continue
+            tail = task_id[len(prefix) :]
+            if tail == "" or tail[0] in ("_", "-") or prefix[-1] in ("_", "-"):
                 return suite_mapping[prefix], "manifest"
 
     # Try suite_mapping prefix match against directory name
@@ -416,7 +527,7 @@ def extract_signals(
     """Extract quantitative reliability signals from a single trial directory.
 
     Reads ``result.json`` and ``trajectory.json`` from *trial_dir* and
-    produces a :class:`TrialSignals` dict with all 26 keys populated
+    produces a :class:`TrialSignals` dict with all 29 keys populated
     (or set to sensible defaults when data is missing).
 
     When *tool_registry* is not explicitly provided, the function reads
@@ -463,10 +574,13 @@ def extract_signals(
     has_result_json = result is not None
     has_trajectory = traj is not None
 
+    # --- Agent name (used for registry auto-select and downstream slicing) ---
+    agent_name_raw = _get_nested(result, "agent_info", "name")
+    agent_name: str = agent_name_raw if isinstance(agent_name_raw, str) else ""
+
     # --- Auto-detect tool registry from agent_info.name ---
     if tool_registry is _REGISTRY_NOT_SET:
-        agent_name = _get_nested(result, "agent_info", "name")
-        if agent_name and isinstance(agent_name, str):
+        if agent_name:
             tool_registry = get_registry_for_agent(agent_name)
         else:
             tool_registry = DEFAULT_REGISTRY
@@ -523,6 +637,7 @@ def extract_signals(
     signals: TrialSignals = {
         "task_id": task_id or "",
         "model": model or "",
+        "agent_name": agent_name,
         "config_name": config_name or "",
         "benchmark": benchmark or "",
         "reward": reward,

@@ -11,6 +11,7 @@ import pytest
 from agent_diagnostics.signals import (
     _is_excluded_path,
     _is_valid_trial,
+    _parse_benchmark_from_run_name,
     _resolve_benchmark_from_directory,
     extract_all,
     extract_signals,
@@ -177,7 +178,7 @@ class TestImports:
 
 
 class TestBasicExtraction:
-    def test_returns_trial_signals_with_28_keys(self, basic_trial: Path) -> None:
+    def test_returns_trial_signals_with_29_keys(self, basic_trial: Path) -> None:
         signals = extract_signals(
             basic_trial,
             suite_mapping={"fix_": "test_bench"},
@@ -185,6 +186,7 @@ class TestBasicExtraction:
         expected_keys = {
             "task_id",
             "model",
+            "agent_name",
             "config_name",
             "benchmark",
             "benchmark_source",
@@ -1463,3 +1465,202 @@ class TestIsJsonlPath:
 
         assert is_jsonl_path("foo.json") is False
         assert is_jsonl_path(Path("bar.json")) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: _parse_benchmark_from_run_name (structural run-dir parser)
+# ---------------------------------------------------------------------------
+
+
+class TestParseBenchmarkFromRunName:
+    @pytest.mark.parametrize(
+        "dir_name,expected",
+        [
+            ("csb_sdlc_fix_haiku_20260228_123456", "sdlc_fix"),
+            ("csb_org_crossrepo_tracing_sonnet46_20260315", "org_crossrepo_tracing"),
+            ("openhands_haiku45_20260301", "openhands"),
+            ("openhands_sonnet46", "openhands"),
+            ("crossrepo_opus_20260202_204730", "crossrepo"),
+            ("_browse_cc_sonnet46", "browse"),
+            ("bigcode_mcp_opus_20260204_023501", "bigcode_mcp"),
+            ("ccb_build_haiku_022326", "build"),
+            ("csb_sdlc_fix_haiku_20260228_123456__promoted", "sdlc_fix"),
+        ],
+    )
+    def test_valid_run_names(self, dir_name: str, expected: str) -> None:
+        assert _parse_benchmark_from_run_name(dir_name) == expected
+
+    @pytest.mark.parametrize(
+        "dir_name",
+        [
+            "",
+            "home",
+            "projects",
+            "CodeScaleBench",
+            "_raw",
+            "baseline",
+            "trial_01",
+            "task-001",
+        ],
+    )
+    def test_names_without_marker_return_none(self, dir_name: str) -> None:
+        assert _parse_benchmark_from_run_name(dir_name) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: load_manifest with nested run_history shape
+# ---------------------------------------------------------------------------
+
+
+class TestLoadManifestRunHistory:
+    def test_parses_nested_run_history(self, tmp_path: Path) -> None:
+        manifest = {
+            "description": "test",
+            "generated": "2026-01-01",
+            "run_history": {
+                "ccb_crossrepo/baseline": {
+                    "cr-aspnet-001": {"n_runs": 3, "mean_reward": 1.0},
+                    "cr-envoy-001": {"n_runs": 3, "mean_reward": 0.0},
+                },
+                "ccb_dependeval/sourcegraph_full": {
+                    "dep-pytorch-001": {"n_runs": 2, "mean_reward": 0.5},
+                },
+            },
+        }
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps(manifest))
+        result = load_manifest(manifest_path)
+        assert result["cr-aspnet-001"] == "crossrepo"
+        assert result["cr-envoy-001"] == "crossrepo"
+        assert result["dep-pytorch-001"] == "dependeval"
+
+    def test_run_history_takes_precedence_over_flat(self, tmp_path: Path) -> None:
+        """When run_history is present, the flat shape is ignored."""
+        manifest = {
+            "run_history": {
+                "ccb_swe_bench/default": {"task-1": {}},
+            },
+            "description": "should-not-be-used",
+        }
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps(manifest))
+        result = load_manifest(manifest_path)
+        assert result == {"task-1": "swe_bench"}
+
+    def test_empty_run_history_falls_through_to_flat(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({"run_history": {}, "foo": "bar"}))
+        result = load_manifest(manifest_path)
+        assert result == {"foo": "bar"}
+
+    def test_ignores_non_ccb_csb_prefix(self, tmp_path: Path) -> None:
+        """Benchmark keys that do not start with csb_/ccb_ are kept intact."""
+        manifest = {
+            "run_history": {
+                "other_bench/default": {"task-a": {}},
+            },
+        }
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps(manifest))
+        result = load_manifest(manifest_path)
+        assert result == {"task-a": "other_bench"}
+
+
+# ---------------------------------------------------------------------------
+# Tests: agent_name field in extracted signals
+# ---------------------------------------------------------------------------
+
+
+class TestAgentNameField:
+    def test_agent_name_populated_from_agent_info(self, tmp_path: Path) -> None:
+        trial = tmp_path / "trial_01"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "t1",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {
+                    "name": "openhands",
+                    "model_info": {"name": "anthropic/claude"},
+                },
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["agent_name"] == "openhands"
+
+    def test_agent_name_empty_when_missing(self, tmp_path: Path) -> None:
+        trial = tmp_path / "trial_02"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "t2",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {"model_info": {"name": "anthropic/claude"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["agent_name"] == ""
+
+    def test_agent_name_claude_code(self, tmp_path: Path) -> None:
+        trial = tmp_path / "trial_03"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "t3",
+                "verifier_result": {"rewards": {"reward": 0.0}},
+                "agent_info": {
+                    "name": "claude-code",
+                    "model_info": {"name": "anthropic/claude"},
+                },
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["agent_name"] == "claude-code"
+
+
+# ---------------------------------------------------------------------------
+# Tests: token-bounded prefix matching against task_id
+# ---------------------------------------------------------------------------
+
+
+class TestTokenBoundedPrefixMatch:
+    def _trial_with_task(self, tmp_path: Path, task_id: str) -> Path:
+        trial = tmp_path / "run_dir" / "trial_01"
+        trial.mkdir(parents=True)
+        _write_result(
+            trial,
+            {
+                "task_name": task_id,
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {"model_info": {"name": "m"}},
+            },
+        )
+        return trial
+
+    def test_exact_task_id_match(self, tmp_path: Path) -> None:
+        trial = self._trial_with_task(tmp_path, "task-10")
+        signals = extract_signals(
+            trial, suite_mapping={"task-10": "bench_ten", "task-1": "bench_one"}
+        )
+        assert signals["benchmark"] == "bench_ten"
+
+    def test_prefix_does_not_spill_across_token_boundary(self, tmp_path: Path) -> None:
+        """'task-10' must not match prefix 'task-1' (non-boundary)."""
+        trial = self._trial_with_task(tmp_path, "task-10")
+        signals = extract_signals(trial, suite_mapping={"task-1": "bench_one"})
+        assert signals["benchmark"] != "bench_one"
+
+    def test_prefix_with_trailing_underscore_is_boundary(self, tmp_path: Path) -> None:
+        """Legacy prefix like 'fix_' must still match 'fix_bug_123'."""
+        trial = self._trial_with_task(tmp_path, "fix_bug_123")
+        signals = extract_signals(trial, suite_mapping={"fix_": "bench_fix"})
+        assert signals["benchmark"] == "bench_fix"
+
+    def test_prefix_match_at_dash_boundary(self, tmp_path: Path) -> None:
+        """'cr-aspnet' prefix matches 'cr-aspnet-001' at the dash boundary."""
+        trial = self._trial_with_task(tmp_path, "cr-aspnet-001")
+        signals = extract_signals(trial, suite_mapping={"cr-aspnet": "crossrepo"})
+        assert signals["benchmark"] == "crossrepo"

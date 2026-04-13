@@ -13,12 +13,13 @@ from typing import Optional, Protocol, Sequence, TypedDict, Union, runtime_check
 class TrialSignals(TypedDict, total=False):
     """Raw signal values extracted from a single benchmark trial.
 
-    All 28 keys are declared; ``total=False`` allows partial construction
+    All 29 keys are declared; ``total=False`` allows partial construction
     during incremental extraction.
     """
 
     task_id: str
     model: str
+    agent_name: str
     config_name: str
     benchmark: str
     reward: float | None
