@@ -1041,3 +1041,184 @@ class TestOpenHandsAutoDetection:
         )
         signals = extract_signals(trial, suite_mapping={})
         assert signals["search_tool_calls"] == 1  # Grep via DEFAULT_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# Tests: load_manifest
+# ---------------------------------------------------------------------------
+
+
+class TestLoadManifest:
+    def test_parses_valid_manifest(self, tmp_path: Path) -> None:
+        manifest = {
+            "csb_crossrepo_run1": "crossrepo",
+            "openhands_eval_42": "openhands",
+            "swe_bench_lite": "swe-bench",
+        }
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps(manifest))
+        result = load_manifest(manifest_path)
+        assert result == manifest
+
+    def test_returns_empty_dict_for_missing_file(self, tmp_path: Path) -> None:
+        result = load_manifest(tmp_path / "nonexistent.json")
+        assert result == {}
+
+    def test_returns_empty_dict_for_malformed_json(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text("not valid json{{{")
+        result = load_manifest(manifest_path)
+        assert result == {}
+
+    def test_returns_empty_dict_for_non_dict_json(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps(["a", "b"]))
+        result = load_manifest(manifest_path)
+        assert result == {}
+
+    def test_filters_non_string_values(self, tmp_path: Path) -> None:
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({"valid": "bench", "bad_key": 123}))
+        result = load_manifest(manifest_path)
+        assert "valid" in result
+        assert result["valid"] == "bench"
+
+    def test_usable_as_suite_mapping(self, tmp_path: Path) -> None:
+        """Manifest output can be passed directly as suite_mapping."""
+        manifest_path = tmp_path / "MANIFEST.json"
+        manifest_path.write_text(json.dumps({"fix_bug": "swebench_lite"}))
+        mapping = load_manifest(manifest_path)
+
+        trial = tmp_path / "trial_01"
+        trial.mkdir()
+        _write_result(
+            trial,
+            {
+                "task_name": "fix_bug_123",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {"model_info": {"name": "test-model"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping=mapping)
+        assert signals["benchmark"] == "swebench_lite"
+        assert signals["benchmark_source"] == "manifest"
+
+
+# ---------------------------------------------------------------------------
+# Tests: directory-name benchmark resolution
+# ---------------------------------------------------------------------------
+
+
+class TestDirectoryBenchmarkResolution:
+    def test_crossrepo_from_dir_name(self, tmp_path: Path) -> None:
+        trial = tmp_path / "csb_crossrepo_run1" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) == "crossrepo"
+
+    def test_openhands_from_dir_name(self, tmp_path: Path) -> None:
+        trial = tmp_path / "openhands_eval_42" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) == "openhands"
+
+    def test_swe_bench_hyphen_from_dir_name(self, tmp_path: Path) -> None:
+        trial = tmp_path / "swe-bench-lite" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) == "swe-bench"
+
+    def test_swe_bench_underscore_from_dir_name(self, tmp_path: Path) -> None:
+        trial = tmp_path / "swe_bench_verified" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) == "swe-bench"
+
+    def test_no_match_returns_none(self, tmp_path: Path) -> None:
+        trial = tmp_path / "unknown_benchmark" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) is None
+
+    def test_case_insensitive(self, tmp_path: Path) -> None:
+        trial = tmp_path / "CSB_CrossRepo_Run1" / "trial"
+        trial.mkdir(parents=True)
+        assert _resolve_benchmark_from_directory(trial) == "crossrepo"
+
+    def test_directory_fallback_in_extract_signals(self, tmp_path: Path) -> None:
+        """When no suite_mapping matches, directory convention is used."""
+        trial = tmp_path / "csb_crossrepo_run1" / "trial_01"
+        trial.mkdir(parents=True)
+        _write_result(
+            trial,
+            {
+                "task_name": "unmatched_task_id",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {"model_info": {"name": "test-model"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["benchmark"] == "crossrepo"
+        assert signals["benchmark_source"] == "directory"
+
+
+# ---------------------------------------------------------------------------
+# Tests: benchmark_source provenance
+# ---------------------------------------------------------------------------
+
+
+class TestBenchmarkSource:
+    def test_source_manifest_from_suite_mapping(self, basic_trial: Path) -> None:
+        signals = extract_signals(
+            basic_trial, suite_mapping={"fix_bug": "swebench_lite"}
+        )
+        assert signals["benchmark_source"] == "manifest"
+
+    def test_source_manifest_from_benchmark_resolver(self, basic_trial: Path) -> None:
+        signals = extract_signals(
+            basic_trial, benchmark_resolver=lambda p: "custom_bench"
+        )
+        assert signals["benchmark_source"] == "manifest"
+
+    def test_source_directory_fallback(self, tmp_path: Path) -> None:
+        trial = tmp_path / "openhands_run" / "trial_01"
+        trial.mkdir(parents=True)
+        _write_result(
+            trial,
+            {
+                "task_name": "some_task",
+                "verifier_result": {"rewards": {"reward": 0.5}},
+                "agent_info": {"model_info": {"name": "test-model"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["benchmark"] == "openhands"
+        assert signals["benchmark_source"] == "directory"
+
+    def test_source_empty_when_unresolved(self, tmp_path: Path) -> None:
+        trial = tmp_path / "unknown_dir" / "trial_01"
+        trial.mkdir(parents=True)
+        _write_result(
+            trial,
+            {
+                "task_name": "no_match_task",
+                "verifier_result": {"rewards": {"reward": 0.0}},
+                "agent_info": {"model_info": {"name": "test-model"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={})
+        assert signals["benchmark"] == ""
+        assert signals["benchmark_source"] == ""
+
+    def test_suite_mapping_takes_precedence_over_directory(
+        self, tmp_path: Path
+    ) -> None:
+        """When suite_mapping matches, directory convention is not used."""
+        trial = tmp_path / "openhands_run" / "trial_01"
+        trial.mkdir(parents=True)
+        _write_result(
+            trial,
+            {
+                "task_name": "oh_task_1",
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "agent_info": {"model_info": {"name": "test-model"}},
+            },
+        )
+        signals = extract_signals(trial, suite_mapping={"oh_task": "custom_openhands"})
+        assert signals["benchmark"] == "custom_openhands"
+        assert signals["benchmark_source"] == "manifest"
