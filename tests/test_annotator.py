@@ -857,3 +857,72 @@ class TestDefaultRegistryKwarg:
         r1 = annotate_trial(signals)
         r2 = annotate_trial(signals, tool_registry=DEFAULT_REGISTRY)
         assert _names(r1) == _names(r2)
+
+
+# ---------------------------------------------------------------------------
+# Tests for CHECKER_REQUIRES_TRAJECTORY metadata
+# ---------------------------------------------------------------------------
+
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
+
+
+class TestCheckerRequiresTrajectory:
+    """AC: each heuristic checker has a requires_trajectory classification."""
+
+    def test_is_dict(self) -> None:
+        assert isinstance(CHECKER_REQUIRES_TRAJECTORY, dict)
+
+    def test_all_values_are_bool(self) -> None:
+        for name, val in CHECKER_REQUIRES_TRAJECTORY.items():
+            assert isinstance(val, bool), f"{name} value is {type(val)}, expected bool"
+
+    def test_retrieval_failure_requires_trajectory(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["retrieval_failure"] is True
+
+    def test_incomplete_solution_does_not_require_trajectory(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["incomplete_solution"] is False
+
+    def test_rate_limited_run_does_not_require_trajectory(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["rate_limited_run"] is False
+
+    def test_clean_success_requires_trajectory(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["clean_success"] is True
+
+    def test_covers_all_checker_output_categories(self) -> None:
+        """Every category that _ALL_CHECKERS can produce should be in the map."""
+        from agent_diagnostics.annotator import _ALL_CHECKERS
+        from agent_diagnostics.tool_registry import DEFAULT_REGISTRY
+
+        # Run every checker with signals that could trigger various categories
+        test_signals_list: list[TrialSignals] = [
+            {
+                "reward": 0.0,
+                "passed": False,
+                "search_tool_calls": 0,
+                "unique_files_read": 0,
+            },
+            {
+                "reward": 1.0,
+                "passed": True,
+                "code_nav_tool_calls": 6,
+                "tool_calls_total": 10,
+                "error_count": 0,
+                "retry_count": 0,
+            },
+            {"rate_limited": True},
+            {"exception_crashed": True},
+            {"reward": 0.5, "passed": False},
+            {"reward": 0.2, "passed": False},
+        ]
+        seen_categories: set[str] = set()
+        for sigs in test_signals_list:
+            for checker in _ALL_CHECKERS:
+                result = checker(sigs, DEFAULT_REGISTRY)
+                if result is not None:
+                    seen_categories.add(result.name)
+
+        # Every category we can actually produce must be in the metadata
+        for cat in seen_categories:
+            assert (
+                cat in CHECKER_REQUIRES_TRAJECTORY
+            ), f"Category '{cat}' produced by a checker but not in CHECKER_REQUIRES_TRAJECTORY"

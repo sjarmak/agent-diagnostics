@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
+
 
 def _load_taxonomy_polarity() -> dict[str, str]:
     """Return a mapping of category name -> polarity from the taxonomy."""
@@ -51,6 +53,17 @@ def _corpus_stats(annotations: list[dict]) -> dict[str, Any]:
     }
 
 
+def _count_trajectory_available(annotations: list[dict]) -> int:
+    """Count annotations that have trajectory data available."""
+    count = 0
+    for a in annotations:
+        # Check signals sub-dict first, then top-level
+        signals = a.get("signals") or {}
+        if signals.get("has_trajectory", False) or a.get("has_trajectory", False):
+            count += 1
+    return count
+
+
 def _category_counts(annotations: list[dict]) -> dict[str, int]:
     """Count how many trials are assigned each category."""
     counts: Counter = Counter()
@@ -58,6 +71,34 @@ def _category_counts(annotations: list[dict]) -> dict[str, int]:
         for cat in a.get("categories", []):
             counts[cat["name"]] += 1
     return dict(counts.most_common())
+
+
+def _category_counts_with_denominators(
+    annotations: list[dict],
+) -> dict[str, dict[str, Any]]:
+    """Count categories with appropriate denominators.
+
+    Returns a dict mapping category name to
+    ``{"count": N, "denominator": M, "rate": N/M}``.
+
+    Trajectory-dependent categories use trajectory-available trials as
+    denominator; reward-dependent categories use full corpus size.
+    """
+    total = len(annotations)
+    traj_available = _count_trajectory_available(annotations)
+
+    counts: Counter = Counter()
+    for a in annotations:
+        for cat in a.get("categories", []):
+            counts[cat["name"]] += 1
+
+    result: dict[str, dict[str, Any]] = {}
+    for name, count in counts.most_common():
+        requires_traj = CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+        denominator = traj_available if requires_traj else total
+        rate = round(count / denominator, 4) if denominator > 0 else 0.0
+        result[name] = {"count": count, "denominator": denominator, "rate": rate}
+    return result
 
 
 def _category_by_config(annotations: list[dict]) -> dict[str, dict[str, int]]:
@@ -231,6 +272,7 @@ def _render_markdown(
     polarity_map: dict[str, str],
     generated_at: str,
     paired_comparisons: list[dict] | None = None,
+    cat_counts_with_denominators: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Render the Markdown reliability report."""
     lines: list[str] = []
@@ -255,14 +297,57 @@ def _render_markdown(
     lines.append(f"| Benchmarks | {len(stats['benchmarks'])} |")
     lines.append("")
 
-    # Category Frequency
-    lines.append("## Category Frequency")
+    # Category Frequency — split by denominator type
+    denom_data = cat_counts_with_denominators or {}
+
+    # Partition categories into trajectory-dependent and reward-dependent
+    traj_cats = {
+        name: count
+        for name, count in cat_counts.items()
+        if CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+    }
+    reward_cats = {
+        name: count
+        for name, count in cat_counts.items()
+        if not CHECKER_REQUIRES_TRAJECTORY.get(name, True)
+    }
+
+    lines.append("## Trajectory-Dependent Categories")
     lines.append("")
-    lines.append("| # | Category | Polarity | Count |")
-    lines.append("|---|----------|----------|-------|")
-    for i, (name, count) in enumerate(cat_counts.items(), 1):
-        pol = polarity_map.get(name, "unknown")
-        lines.append(f"| {i} | {name} | {pol} | {count:,} |")
+    if traj_cats:
+        # Determine denominator from any trajectory category entry
+        traj_denom = next(
+            (denom_data[n]["denominator"] for n in traj_cats if n in denom_data),
+            stats["total_trials"],
+        )
+        lines.append(f"Denominator: {traj_denom:,} trials with trajectory data")
+        lines.append("")
+        lines.append("| # | Category | Polarity | Count | Rate |")
+        lines.append("|---|----------|----------|-------|------|")
+        for i, (name, count) in enumerate(traj_cats.items(), 1):
+            pol = polarity_map.get(name, "unknown")
+            info = denom_data.get(name, {})
+            rate = info.get("rate", 0.0)
+            lines.append(f"| {i} | {name} | {pol} | {count:,} | {rate:.1%} |")
+    else:
+        lines.append("No trajectory-dependent categories found.")
+    lines.append("")
+
+    lines.append("## Reward-Dependent Categories")
+    lines.append("")
+    if reward_cats:
+        reward_denom = stats["total_trials"]
+        lines.append(f"Denominator: {reward_denom:,} total trials")
+        lines.append("")
+        lines.append("| # | Category | Polarity | Count | Rate |")
+        lines.append("|---|----------|----------|-------|------|")
+        for i, (name, count) in enumerate(reward_cats.items(), 1):
+            pol = polarity_map.get(name, "unknown")
+            info = denom_data.get(name, {})
+            rate = info.get("rate", 0.0)
+            lines.append(f"| {i} | {name} | {pol} | {count:,} | {rate:.1%} |")
+    else:
+        lines.append("No reward-dependent categories found.")
     lines.append("")
 
     # Config Breakdown
@@ -383,11 +468,15 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
 
     stats = _corpus_stats(ann_list)
     cat_counts = _category_counts(ann_list)
+    cat_counts_denom = _category_counts_with_denominators(ann_list)
     cat_by_config = _category_by_config(ann_list)
     cat_by_suite = _category_by_suite(ann_list)
     top_failures = _top_categories_with_examples(ann_list, polarity_map, "failure")
     top_successes = _top_categories_with_examples(ann_list, polarity_map, "success")
     paired_comparisons = _paired_comparison(ann_list)
+
+    # Add trajectory-available count to corpus stats
+    stats["trajectory_available"] = _count_trajectory_available(ann_list)
 
     # Markdown report
     md_content = _render_markdown(
@@ -400,6 +489,7 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         polarity_map,
         generated_at,
         paired_comparisons=paired_comparisons,
+        cat_counts_with_denominators=cat_counts_denom,
     )
     md_path = output_dir / "reliability_report.md"
     md_path.write_text(md_content)
@@ -408,7 +498,7 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
     json_data = {
         "generated_at": generated_at,
         "corpus_stats": stats,
-        "category_counts": cat_counts,
+        "category_counts": cat_counts_denom,
         "category_by_config": cat_by_config,
         "category_by_suite": cat_by_suite,
         "paired_comparisons": paired_comparisons,

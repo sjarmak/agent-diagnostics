@@ -789,6 +789,51 @@ def _check_insufficient_provenance(
 
 
 # ---------------------------------------------------------------------------
+# Trajectory dependency metadata
+# ---------------------------------------------------------------------------
+
+# Maps each category name to whether it requires trajectory data.
+# Categories marked True depend on trajectory-derived signals (tool counts,
+# file lists, sequences, error/retry counts, etc.).
+# Categories marked False only need reward/passed/infrastructure flags.
+CHECKER_REQUIRES_TRAJECTORY: dict[str, bool] = {
+    # Reward/infrastructure-only categories
+    "rate_limited_run": False,
+    "exception_crash": False,
+    "incomplete_solution": False,
+    "near_miss": False,
+    "minimal_progress": False,
+    # Trajectory-dependent categories
+    "task_ambiguity": True,
+    "retrieval_failure": True,
+    "query_churn": True,
+    "wrong_tool_choice": True,
+    "missing_code_navigation": True,
+    "decomposition_failure": True,
+    "edit_verify_loop_failure": True,
+    "stale_context": True,
+    "multi_repo_scope_failure": True,
+    "local_remote_mismatch": True,
+    "verifier_mismatch": True,
+    "over_exploration": True,
+    "tool_argument_error": True,
+    "premature_termination": True,
+    "verification_skipped": True,
+    "verification_skip": True,
+    "premature_commit": True,
+    "planning_absence": True,
+    "tool_underutilization": True,
+    "reward_hacking": True,
+    "clean_success": True,
+    "success_via_code_nav": True,
+    "success_via_semantic_search": True,
+    "success_via_local_exec": True,
+    "success_via_commit_context": True,
+    "success_via_decomposition": True,
+    "insufficient_provenance": True,
+}
+
+# ---------------------------------------------------------------------------
 # All heuristic checkers
 # ---------------------------------------------------------------------------
 

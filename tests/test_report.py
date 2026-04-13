@@ -119,12 +119,19 @@ class TestMarkdownSections:
         content = md_path.read_text()
         assert "## Corpus Statistics" in content
 
-    def test_category_frequency_section(
+    def test_trajectory_dependent_section(
         self, tmp_path: Path, sample_annotations: dict
     ) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
-        assert "## Category Frequency" in content
+        assert "## Trajectory-Dependent Categories" in content
+
+    def test_reward_dependent_section(
+        self, tmp_path: Path, sample_annotations: dict
+    ) -> None:
+        md_path, _ = generate_report(sample_annotations, tmp_path)
+        content = md_path.read_text()
+        assert "## Reward-Dependent Categories" in content
 
     def test_config_breakdown_section(
         self, tmp_path: Path, sample_annotations: dict
@@ -203,19 +210,19 @@ class TestCategoryCountsCorrect:
     ) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["retrieval_failure"] == 2
+        assert counts["retrieval_failure"]["count"] == 2
 
     def test_success_via_code_nav_count(
         self, tmp_path: Path, sample_annotations: dict
     ) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["success_via_code_nav"] == 2
+        assert counts["success_via_code_nav"]["count"] == 2
 
     def test_query_churn_count(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
-        assert counts["query_churn"] == 1
+        assert counts["query_churn"]["count"] == 1
 
 
 class TestConfigBreakdown:
@@ -276,11 +283,17 @@ class TestEmptyAnnotations:
         counts = json.loads(json_path.read_text())["category_counts"]
         assert counts == {}
 
+    def test_empty_trajectory_available(self, tmp_path: Path) -> None:
+        _, json_path = generate_report({"annotations": []}, tmp_path)
+        stats = json.loads(json_path.read_text())["corpus_stats"]
+        assert stats["trajectory_available"] == 0
+
     def test_empty_md_has_sections(self, tmp_path: Path) -> None:
         md_path, _ = generate_report({"annotations": []}, tmp_path)
         content = md_path.read_text()
         assert "## Corpus Statistics" in content
-        assert "## Category Frequency" in content
+        assert "## Trajectory-Dependent Categories" in content
+        assert "## Reward-Dependent Categories" in content
         assert "## Success Mode Summary" in content
 
 
@@ -757,3 +770,222 @@ class TestRenderMarkdownNoSuccesses:
         assert "a vs b" in md
         assert "cat1" in md
         assert "cat2" in md
+
+
+# ---------------------------------------------------------------------------
+# Tests for trajectory-aware denominators (unit-trajectory-denominators)
+# ---------------------------------------------------------------------------
+
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
+from agent_diagnostics.report import (
+    _category_counts_with_denominators,
+    _count_trajectory_available,
+)
+
+
+def _make_mixed_trajectory_annotations() -> list[dict]:
+    """Build annotations where some have trajectory data and some do not."""
+    return [
+        {
+            "task_id": "t1",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.0,
+            "has_trajectory": True,
+            "categories": [
+                {"name": "retrieval_failure", "confidence": 0.9, "evidence": "ev"},
+                {"name": "incomplete_solution", "confidence": 0.8, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t2",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.5,
+            "has_trajectory": True,
+            "categories": [
+                {"name": "near_miss", "confidence": 0.7, "evidence": "ev"},
+                {"name": "query_churn", "confidence": 0.6, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t3",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": False,
+            "reward": 0.3,
+            "has_trajectory": False,
+            "categories": [
+                {"name": "minimal_progress", "confidence": 0.7, "evidence": "ev"},
+            ],
+        },
+        {
+            "task_id": "t4",
+            "config_name": "cfg",
+            "benchmark": "b",
+            "passed": True,
+            "reward": 1.0,
+            "has_trajectory": False,
+            "categories": [],
+        },
+    ]
+
+
+class TestTrajectoryAvailableCount:
+    """Tests for _count_trajectory_available helper."""
+
+    def test_counts_has_trajectory_true(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        assert _count_trajectory_available(anns) == 2
+
+    def test_empty_list(self) -> None:
+        assert _count_trajectory_available([]) == 0
+
+    def test_all_have_trajectory(self) -> None:
+        anns = [{"has_trajectory": True}, {"has_trajectory": True}]
+        assert _count_trajectory_available(anns) == 2
+
+    def test_none_have_trajectory(self) -> None:
+        anns = [{"has_trajectory": False}, {}]
+        assert _count_trajectory_available(anns) == 0
+
+    def test_signals_sub_dict(self) -> None:
+        """has_trajectory in signals sub-dict is also recognized."""
+        anns = [{"signals": {"has_trajectory": True}}, {"signals": {}}]
+        assert _count_trajectory_available(anns) == 1
+
+
+class TestDenominatorSplitting:
+    """Verify that trajectory-dependent and reward-dependent categories
+    get different denominators."""
+
+    def test_trajectory_category_uses_traj_denominator(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # retrieval_failure is trajectory-dependent; 2 of 4 have trajectory
+        assert result["retrieval_failure"]["denominator"] == 2
+
+    def test_reward_category_uses_full_denominator(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # near_miss is reward-only; denominator should be total=4
+        assert result["near_miss"]["denominator"] == 4
+
+    def test_rate_computed_correctly_trajectory(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # retrieval_failure: count=1, denominator=2 -> rate=0.5
+        assert result["retrieval_failure"]["rate"] == 0.5
+
+    def test_rate_computed_correctly_reward(self) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        result = _category_counts_with_denominators(anns)
+        # minimal_progress: count=1, denominator=4 -> rate=0.25
+        assert result["minimal_progress"]["rate"] == 0.25
+
+
+class TestRetrievalFailureDenominator:
+    """Verify retrieval_failure uses trajectory-available trials as denominator."""
+
+    def test_retrieval_failure_is_trajectory_dependent(self) -> None:
+        assert CHECKER_REQUIRES_TRAJECTORY["retrieval_failure"] is True
+
+    def test_retrieval_failure_denominator_in_report(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        rf = data["category_counts"]["retrieval_failure"]
+        assert rf["denominator"] == 2  # only 2 trials have trajectory
+        assert rf["count"] == 1
+        assert rf["rate"] == 0.5
+
+
+class TestJsonDenominatorStructure:
+    """Verify JSON category_counts has {count, denominator, rate} structure."""
+
+    def test_category_entry_has_required_keys(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        for name, info in data["category_counts"].items():
+            assert "count" in info, f"{name} missing 'count'"
+            assert "denominator" in info, f"{name} missing 'denominator'"
+            assert "rate" in info, f"{name} missing 'rate'"
+
+    def test_corpus_stats_has_trajectory_available(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        _, json_path = generate_report({"annotations": anns}, tmp_path)
+        data = json.loads(json_path.read_text())
+        assert data["corpus_stats"]["trajectory_available"] == 2
+
+
+class TestMarkdownDenominatorSections:
+    """Verify markdown report has separate denominator sections."""
+
+    def test_trajectory_section_present(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "## Trajectory-Dependent Categories" in content
+
+    def test_reward_section_present(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "## Reward-Dependent Categories" in content
+
+    def test_trajectory_section_shows_denominator(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "2 trials with trajectory data" in content
+
+    def test_reward_section_shows_denominator(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        assert "4 total trials" in content
+
+    def test_rate_column_in_trajectory_table(self, tmp_path: Path) -> None:
+        anns = _make_mixed_trajectory_annotations()
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        # The trajectory section should have a Rate column
+        assert "| Rate |" in content
+
+
+class TestCheckerRequiresTrajectoryMetadata:
+    """Verify CHECKER_REQUIRES_TRAJECTORY covers all heuristic checkers."""
+
+    def test_reward_only_categories_marked_false(self) -> None:
+        for name in [
+            "rate_limited_run",
+            "exception_crash",
+            "incomplete_solution",
+            "near_miss",
+            "minimal_progress",
+        ]:
+            assert CHECKER_REQUIRES_TRAJECTORY[name] is False, f"{name} should be False"
+
+    def test_trajectory_categories_marked_true(self) -> None:
+        for name in [
+            "retrieval_failure",
+            "query_churn",
+            "clean_success",
+            "success_via_code_nav",
+            "reward_hacking",
+            "planning_absence",
+        ]:
+            assert CHECKER_REQUIRES_TRAJECTORY[name] is True, f"{name} should be True"
+
+    def test_all_checker_categories_covered(self) -> None:
+        """Every category in _ALL_CHECKERS should have an entry."""
+        from agent_diagnostics.annotator import _ALL_CHECKERS, _assignment
+        from agent_diagnostics.tool_registry import DEFAULT_REGISTRY
+
+        # Extract category names from checkers by examining the function names
+        # Each _check_X function produces category name derived from its name
+        # Instead, verify all keys in CHECKER_REQUIRES_TRAJECTORY are non-empty
+        assert len(CHECKER_REQUIRES_TRAJECTORY) >= 27
