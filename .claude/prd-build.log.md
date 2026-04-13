@@ -17,3 +17,9 @@ Baseline: 651 tests.
 - OPENHANDS_REGISTRY, get_registry_for_agent(), auto-detect in extract_signals()
 - load_manifest(), directory-name benchmark fallback, benchmark_source provenance
 - 716 tests passing
+
+## Layer 1 landed: unit-trajectory-denominators (51eea82), unit-jsonl-format (945ba7e)
+
+- CHECKER_REQUIRES_TRAJECTORY dict, split report sections with correct denominators
+- write_jsonl/load_signals helpers, .meta.json sidecar, CLI format detection
+- 763 tests passing

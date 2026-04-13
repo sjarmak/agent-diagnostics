@@ -140,8 +140,8 @@
       "tests/test_report.py",
       "tests/test_annotator.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "51eea82",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
@@ -172,8 +172,8 @@
       "tests/test_cli.py",
       "tests/test_signals.py"
     ],
-    "status": "pending",
-    "branch": null,
+    "status": "landed",
+    "branch": "945ba7e",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,

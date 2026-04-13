@@ -41,6 +41,7 @@ def test_help_output_includes_all_subcommands():
         "train",
         "predict",
         "ensemble",
+        "ingest",
         "validate",
     ]
     for sub in expected_subcommands:
@@ -98,6 +99,245 @@ def test_pyproject_has_scripts_entry():
     content = pyproject_path.read_text()
     assert "[project.scripts]" in content
     assert 'observatory = "agent_diagnostics.cli:main"' in content
+
+
+# ---------------------------------------------------------------------------
+# cmd_extract tests
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Helper: create a minimal valid trial directory
+# ---------------------------------------------------------------------------
+
+
+def _make_trial(parent: Path, name: str = "trial1", **result_overrides) -> Path:
+    """Create a trial directory with a valid result.json."""
+    trial_dir = parent / name
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    result = {
+        "task_name": "test_task",
+        "agent_info": {"name": "test-agent"},
+        "verifier_result": {"rewards": {"reward": 1.0}},
+        **result_overrides,
+    }
+    (trial_dir / "result.json").write_text(json.dumps(result))
+    return trial_dir
+
+
+# ---------------------------------------------------------------------------
+# cmd_ingest tests
+# ---------------------------------------------------------------------------
+
+
+class TestCmdIngest:
+    """Tests for cmd_ingest."""
+
+    def test_missing_runs_dir_exits(self, tmp_path):
+        from agent_diagnostics.cli import cmd_ingest
+
+        args = argparse.Namespace(
+            runs_dir=str(tmp_path / "nonexistent"),
+            output=str(tmp_path / "out.jsonl"),
+            manifest=None,
+            state=None,
+        )
+        with pytest.raises(SystemExit):
+            cmd_ingest(args)
+
+    def test_basic_ingest(self, tmp_path):
+        """Ingest writes JSONL output with one trial per line."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+        _make_trial(runs_dir, "trial2")
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        assert output.exists()
+        lines = [json.loads(line) for line in output.read_text().strip().splitlines()]
+        assert len(lines) == 2
+        # Each line should have trial_path set
+        for line in lines:
+            assert "trial_path" in line
+            assert "task_id" in line
+
+    def test_invalid_trial_filtered(self, tmp_path):
+        """Harness summaries without agent_info are skipped."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        # Valid trial
+        _make_trial(runs_dir, "valid_trial")
+        # Invalid trial (no agent_info = harness summary)
+        invalid_dir = runs_dir / "summary"
+        invalid_dir.mkdir(parents=True)
+        (invalid_dir / "result.json").write_text(json.dumps({"summary": True}))
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+    def test_excluded_path_filtered(self, tmp_path):
+        """Trials in excluded directories are skipped."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "good_trial")
+        _make_trial(runs_dir / "__archived_invalid", "bad_trial")
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+    def test_manifest_flag(self, tmp_path):
+        """--manifest loads suite_mapping and passes it to extract_signals."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+
+        manifest = tmp_path / "MANIFEST.json"
+        manifest.write_text(json.dumps({"test_task": "my-benchmark"}))
+
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=str(manifest),
+            state=None,
+        )
+        cmd_ingest(args)
+
+        lines = [json.loads(line) for line in output.read_text().strip().splitlines()]
+        assert len(lines) == 1
+        assert lines[0]["benchmark"] == "my-benchmark"
+
+    def test_manifest_missing_exits(self, tmp_path):
+        """--manifest with nonexistent file exits with error."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        runs_dir.mkdir()
+
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(tmp_path / "out.jsonl"),
+            manifest=str(tmp_path / "missing_manifest.json"),
+            state=None,
+        )
+        with pytest.raises(SystemExit):
+            cmd_ingest(args)
+
+    def test_state_file_creation(self, tmp_path):
+        """--state creates a state file with mtime/size entries."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        trial = _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+        cmd_ingest(args)
+
+        assert state_file.exists()
+        state = json.loads(state_file.read_text())
+        assert str(trial) in state
+        entry = state[str(trial)]
+        assert "mtime" in entry
+        assert "size" in entry
+
+    def test_incremental_skip(self, tmp_path):
+        """Running ingest twice with no changes skips unchanged trials."""
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+
+        base_args = dict(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+
+        # First run: extracts the trial
+        cmd_ingest(argparse.Namespace(**base_args))
+        lines_first = output.read_text().strip().splitlines()
+        assert len(lines_first) == 1
+
+        # Second run: trial unchanged, should be skipped
+        cmd_ingest(argparse.Namespace(**base_args))
+        lines_second = output.read_text().strip().splitlines()
+        # Output should be empty (0 new trials extracted)
+        assert len(lines_second) == 0
+
+    def test_incremental_reextracts_changed(self, tmp_path):
+        """Modified trial is re-extracted on second run."""
+        import time
+
+        from agent_diagnostics.cli import cmd_ingest
+
+        runs_dir = tmp_path / "runs"
+        trial = _make_trial(runs_dir, "trial1")
+
+        state_file = tmp_path / "state.json"
+        output = tmp_path / "out.jsonl"
+
+        base_args = dict(
+            runs_dir=str(runs_dir),
+            output=str(output),
+            manifest=None,
+            state=str(state_file),
+        )
+
+        # First run
+        cmd_ingest(argparse.Namespace(**base_args))
+        assert len(output.read_text().strip().splitlines()) == 1
+
+        # Modify the result.json (change content to change size, touch for mtime)
+        time.sleep(0.05)  # ensure mtime differs
+        result_path = trial / "result.json"
+        data = json.loads(result_path.read_text())
+        data["extra_field"] = "changed"
+        result_path.write_text(json.dumps(data))
+
+        # Second run: should re-extract
+        cmd_ingest(argparse.Namespace(**base_args))
+        assert len(output.read_text().strip().splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------
