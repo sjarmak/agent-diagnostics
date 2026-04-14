@@ -500,9 +500,9 @@ class TestCmdLlmAnnotate:
         with pytest.raises(SystemExit):
             cmd_llm_annotate(args)
 
-    @patch("agent_diagnostics.llm_annotator.annotate_trial_llm")
+    @patch("agent_diagnostics.llm_annotator.annotate_batch")
     @patch("agent_diagnostics.taxonomy.load_taxonomy")
-    def test_success_with_mock(self, mock_taxonomy, mock_annotate, tmp_path):
+    def test_success_with_mock(self, mock_taxonomy, mock_annotate_batch, tmp_path):
         from agent_diagnostics.cli import cmd_llm_annotate
 
         # Create a trial directory with trajectory file
@@ -522,8 +522,8 @@ class TestCmdLlmAnnotate:
         signals_file.write_text(json.dumps(signals))
 
         mock_taxonomy.return_value = {"version": "1.0", "categories": []}
-        mock_annotate.return_value = [
-            {"name": "cat1", "confidence": 0.9, "evidence": "test"}
+        mock_annotate_batch.return_value = [
+            [{"name": "cat1", "confidence": 0.9, "evidence": "test"}]
         ]
 
         output = tmp_path / "out.json"
@@ -536,7 +536,7 @@ class TestCmdLlmAnnotate:
         )
         cmd_llm_annotate(args)
 
-        mock_annotate.assert_called_once()
+        mock_annotate_batch.assert_called_once()
         assert output.exists()
         data = json.loads(output.read_text())
         assert data["schema_version"] == "observatory-annotation-v1"

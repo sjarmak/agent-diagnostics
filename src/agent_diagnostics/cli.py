@@ -71,7 +71,7 @@ def cmd_llm_annotate(args):
     import random
     from datetime import datetime, timezone
 
-    from agent_diagnostics.llm_annotator import annotate_trial_llm
+    from agent_diagnostics.llm_annotator import annotate_batch, annotate_trial_llm
     from agent_diagnostics.taxonomy import load_taxonomy
 
     signals_path = Path(args.signals)
@@ -104,13 +104,19 @@ def cmd_llm_annotate(args):
 
     taxonomy = load_taxonomy()
     now = datetime.now(timezone.utc).isoformat()
+
+    # Use concurrent batch path for speed, falling back to sequential
+    trial_dirs = [sig["trial_path"] for sig in sampled]
+    batch_results = annotate_batch(
+        trial_dirs,
+        sampled,
+        model=args.model,
+        max_concurrent=1,
+        backend=backend,
+    )
+
     annotations = []
-
-    for i, sig in enumerate(sampled, 1):
-        print(f"[{i}/{sample_size}] Annotating...", file=sys.stderr, end="")
-        trial_dir = sig["trial_path"]
-        cats = annotate_trial_llm(trial_dir, sig, model=args.model, backend=backend)
-
+    for sig, cats in zip(sampled, batch_results):
         reward_val = sig.get("reward")
         annotation = {
             "task_id": sig.get("task_id") or "unknown",
@@ -125,8 +131,6 @@ def cmd_llm_annotate(args):
         for key in ("config_name", "benchmark", "model"):
             if sig.get(key):
                 annotation[key] = sig[key]
-
-        print(" done", file=sys.stderr)
         annotations.append(annotation)
 
     result = {
@@ -465,9 +469,10 @@ def main():
     p_llm.add_argument(
         "--backend",
         default="claude-code",
-        choices=["claude-code", "api"],
+        choices=["claude-code", "api", "batch"],
         help="LLM backend: 'claude-code' uses the claude CLI (default), "
-        "'api' uses the Anthropic SDK (requires ANTHROPIC_API_KEY)",
+        "'api' uses the Anthropic SDK, 'batch' uses the Message Batches API "
+        "(50%% cheaper, no rate limits). Both api/batch require ANTHROPIC_API_KEY.",
     )
     p_llm.set_defaults(func=cmd_llm_annotate)
 

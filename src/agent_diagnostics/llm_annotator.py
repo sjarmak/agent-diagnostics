@@ -5,10 +5,14 @@ then asks a Claude model to propose taxonomy categories.  Designed to
 calibrate against heuristic annotations and surface categories the
 heuristic rules cannot detect (e.g. decomposition_failure, stale_context).
 
-Supports two backends:
+Supports three backends:
 - ``claude-code``: Uses the ``claude`` CLI in print mode (default).
   Requires the ``claude`` CLI to be installed and authenticated.
 - ``api``: Uses the Anthropic Python SDK directly.
+  Requires ``ANTHROPIC_API_KEY`` in the environment.
+- ``batch``: Uses the Anthropic Message Batches API for 50% cost
+  reduction and no per-minute rate limits.  Submits all requests as
+  a server-side batch, polls until complete, then parses results.
   Requires ``ANTHROPIC_API_KEY`` in the environment.
 """
 
@@ -728,6 +732,178 @@ def annotate_batch_api(
 
 
 # ---------------------------------------------------------------------------
+# Backend: batch (Anthropic Message Batches API — 50% cheaper)
+# ---------------------------------------------------------------------------
+
+
+def annotate_batch_messages(
+    trials: list[str | Path],
+    signals_list: list[dict],
+    model: str = "haiku",
+    poll_interval: float = 10.0,
+) -> list[list[dict]]:
+    """Annotate trials using the Anthropic Message Batches API.
+
+    Submits all uncached trials as a single server-side batch, polls
+    until processing completes, then parses the results.  Cached trials
+    are resolved locally without an API call.
+
+    This is 50% cheaper than the standard Messages API and avoids
+    per-minute rate limits.
+
+    Parameters
+    ----------
+    trials : list of str or Path
+        Trial directory paths.
+    signals_list : list of dict
+        Corresponding signal vectors (same length as *trials*).
+    model : str
+        Model alias or full model ID.
+    poll_interval : float
+        Seconds between status polls (default 10).
+    """
+    import time
+
+    if len(trials) != len(signals_list):
+        raise ValueError(
+            f"trials ({len(trials)}) and signals_list ({len(signals_list)}) "
+            "must have the same length"
+        )
+
+    try:
+        import anthropic
+    except ImportError:
+        raise ImportError(
+            "anthropic SDK required -- install with: pip install agent-observatory[llm]"
+        ) from None
+
+    taxonomy = _taxonomy_yaml()
+    model_id = _resolve_model_api(model)
+    annotate_tool = {
+        "name": "annotate",
+        "description": "Return taxonomy category annotations for the trial.",
+        "input_schema": _ANNOTATION_SCHEMA,
+    }
+
+    # --- Phase 1: build prompts and check cache ---
+    results: list[list[dict]] = [[] for _ in trials]
+    # Map from batch custom_id to (index, prompt, cache_key)
+    batch_requests: list[dict[str, Any]] = []
+    pending: dict[str, tuple[int, str, str]] = {}  # custom_id -> (idx, trial_dir, ckey)
+    cached_count = 0
+
+    for idx, (trial_path, signals) in enumerate(zip(trials, signals_list)):
+        trial_dir = Path(trial_path)
+        instruction = _read_text(
+            trial_dir / "agent" / "instruction.txt", max_chars=4000
+        )
+        traj = _load_json(trial_dir / "agent" / "trajectory.json")
+        truncated = truncate_trajectory(traj, first_n=30, last_n=10)
+        prompt = build_prompt(instruction, truncated, signals, taxonomy)
+
+        ckey = cache_key(prompt, model_id)
+        cached = get_cached(DEFAULT_CACHE_DIR, ckey)
+        if cached is not None:
+            results[idx] = cached
+            cached_count += 1
+            continue
+
+        custom_id = f"trial-{idx}"
+        batch_requests.append(
+            {
+                "custom_id": custom_id,
+                "params": {
+                    "model": model_id,
+                    "max_tokens": 2048,
+                    "tools": [annotate_tool],
+                    "tool_choice": {"type": "tool", "name": "annotate"},
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            }
+        )
+        pending[custom_id] = (idx, str(trial_dir), ckey)
+
+    print(
+        f"Batch: {cached_count} cached, {len(batch_requests)} to submit",
+        file=sys.stderr,
+    )
+
+    if not batch_requests:
+        print("All trials resolved from cache.", file=sys.stderr)
+        return results
+
+    # --- Phase 2: submit batch ---
+    client = anthropic.Anthropic()
+    batch = client.messages.batches.create(requests=batch_requests)
+    print(
+        f"Batch created: {batch.id} ({len(batch_requests)} requests)", file=sys.stderr
+    )
+
+    # --- Phase 3: poll until complete ---
+    while batch.processing_status != "ended":
+        time.sleep(poll_interval)
+        batch = client.messages.batches.retrieve(batch.id)
+        counts = batch.request_counts
+        total = (
+            counts.processing
+            + counts.succeeded
+            + counts.errored
+            + counts.canceled
+            + counts.expired
+        )
+        print(
+            f"  Batch {batch.id}: {counts.succeeded}/{total} succeeded, "
+            f"{counts.errored} errored, {counts.processing} processing",
+            file=sys.stderr,
+        )
+
+    # --- Phase 4: parse results ---
+    succeeded = 0
+    errored = 0
+    for result in client.messages.batches.results(batch.id):
+        custom_id = result.custom_id
+        if custom_id not in pending:
+            continue
+        idx, trial_dir_str, ckey = pending[custom_id]
+
+        if result.result.type == "succeeded":
+            message = result.result.message
+            categories: list[dict] = []
+            for block in message.content:
+                if (
+                    getattr(block, "type", None) == "tool_use"
+                    and block.name == "annotate"
+                ):
+                    tool_input = block.input
+                    if isinstance(tool_input, dict):
+                        categories = tool_input.get("categories", [])
+                    break
+
+            validated = validate_categories(categories, trial_dir_str)
+            annotation = _to_annotation_result(validated)
+            put_cached(
+                DEFAULT_CACHE_DIR, ckey, validated, is_error=_is_error(annotation)
+            )
+            results[idx] = _unwrap_result(annotation)
+            succeeded += 1
+        else:
+            error_msg = getattr(result.result, "error", None)
+            logger.error(
+                "Batch error for %s: %s",
+                trial_dir_str,
+                error_msg,
+            )
+            errored += 1
+
+    print(
+        f"Batch complete: {succeeded} succeeded, {errored} errored, "
+        f"{cached_count} from cache",
+        file=sys.stderr,
+    )
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Unified dispatch
 # ---------------------------------------------------------------------------
 
@@ -751,13 +927,19 @@ def annotate_trial_llm(
     backend : str
         ``'claude-code'`` (default) uses the ``claude`` CLI.
         ``'api'`` uses the Anthropic Python SDK.
+        ``'batch'`` is not supported for single-trial calls; use
+        :func:`annotate_batch` instead.
     """
     if backend == "claude-code":
         return annotate_trial_claude_code(trial_dir, signals, model)
     elif backend == "api":
         return annotate_trial_api(trial_dir, signals, model)
+    elif backend == "batch":
+        return annotate_trial_api(trial_dir, signals, model)
     else:
-        raise ValueError(f"Unknown backend: {backend!r}. Use 'claude-code' or 'api'.")
+        raise ValueError(
+            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
+        )
 
 
 def annotate_batch(
@@ -780,11 +962,15 @@ def annotate_batch(
     max_concurrent : int
         Maximum number of concurrent calls/subprocesses.
     backend : str
-        ``'claude-code'`` (default) or ``'api'``.
+        ``'claude-code'`` (default), ``'api'``, or ``'batch'``.
     """
     if backend == "claude-code":
         return annotate_batch_claude_code(trials, signals_list, model, max_concurrent)
     elif backend == "api":
         return annotate_batch_api(trials, signals_list, model, max_concurrent)
+    elif backend == "batch":
+        return annotate_batch_messages(trials, signals_list, model)
     else:
-        raise ValueError(f"Unknown backend: {backend!r}. Use 'claude-code' or 'api'.")
+        raise ValueError(
+            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
+        )
