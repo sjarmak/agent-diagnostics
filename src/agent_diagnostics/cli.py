@@ -25,8 +25,11 @@ def cmd_extract(args):
 
 def cmd_annotate(args):
     """Generate heuristic annotations from extracted signals."""
-    from agent_diagnostics.annotator import annotate_all
+    from datetime import datetime, timezone
+
+    from agent_diagnostics.annotator import annotate_trial
     from agent_diagnostics.signals import load_signals, write_output
+    from agent_diagnostics.taxonomy import load_taxonomy
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
@@ -34,15 +37,42 @@ def cmd_annotate(args):
         sys.exit(1)
 
     signals_list = load_signals(signals_path)
+    taxonomy = load_taxonomy()
+    now = datetime.now(timezone.utc).isoformat()
 
-    annotations = annotate_all(signals_list)
+    annotation_list = []
+    for sig in signals_list:
+        assignments = annotate_trial(sig)
+        annotation_list.append(
+            {
+                "task_id": sig.get("task_id", ""),
+                "trial_path": sig.get("trial_path", ""),
+                "reward": sig.get("reward"),
+                "passed": sig.get("passed", False),
+                "categories": [
+                    {
+                        "name": a.name,
+                        "confidence": a.confidence,
+                        "evidence": a.evidence or "",
+                    }
+                    for a in assignments
+                ],
+            }
+        )
+
+    annotations = {
+        "schema_version": "observatory-annotation-v1",
+        "taxonomy_version": str(taxonomy.get("version", "")),
+        "generated_at": now,
+        "annotations": annotation_list,
+    }
 
     output = Path(args.output)
     write_output(annotations, output)
 
-    total_categories = sum(len(a["categories"]) for a in annotations["annotations"])
+    total_categories = sum(len(a["categories"]) for a in annotation_list)
     print(
-        f"Annotated {len(annotations['annotations'])} trials "
+        f"Annotated {len(annotation_list)} trials "
         f"with {total_categories} total category assignments",
         file=sys.stderr,
     )

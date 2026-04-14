@@ -401,32 +401,29 @@ class TestCmdAnnotate:
             if hasattr(_ann_mod, "annotate_all"):
                 del _ann_mod.annotate_all
 
-    def test_success(self, tmp_path):
+    @patch("agent_diagnostics.annotator.annotate_trial")
+    @patch("agent_diagnostics.taxonomy.load_taxonomy")
+    def test_success(self, mock_taxonomy, mock_annotate_trial, tmp_path):
         from agent_diagnostics.cli import cmd_annotate
+        from agent_diagnostics.types import CategoryAssignment
 
-        import agent_diagnostics.annotator as _ann_mod
+        mock_taxonomy.return_value = {"version": "3.0"}
+        mock_annotate_trial.return_value = [
+            CategoryAssignment(name="cat1", confidence=0.9, evidence="test")
+        ]
 
-        mock_annotate = MagicMock(
-            return_value={
-                "annotations": [{"task_id": "t1", "categories": [{"name": "cat1"}]}]
-            }
-        )
-        _ann_mod.annotate_all = mock_annotate
-        try:
-            signals_file = tmp_path / "signals.json"
-            signals_file.write_text(json.dumps([{"trial_id": "t1"}]))
+        signals_file = tmp_path / "signals.json"
+        signals_file.write_text(json.dumps([{"task_id": "t1"}]))
 
-            output = tmp_path / "annotations.json"
-            args = argparse.Namespace(signals=str(signals_file), output=str(output))
-            cmd_annotate(args)
+        output = tmp_path / "annotations.json"
+        args = argparse.Namespace(signals=str(signals_file), output=str(output))
+        cmd_annotate(args)
 
-            mock_annotate.assert_called_once()
-            assert output.exists()
-            data = json.loads(output.read_text())
-            assert len(data["annotations"]) == 1
-        finally:
-            if hasattr(_ann_mod, "annotate_all"):
-                del _ann_mod.annotate_all
+        mock_annotate_trial.assert_called_once()
+        assert output.exists()
+        data = json.loads(output.read_text())
+        assert len(data["annotations"]) == 1
+        assert data["annotations"][0]["categories"][0]["name"] == "cat1"
 
 
 # ---------------------------------------------------------------------------
@@ -863,71 +860,62 @@ class TestCmdExtractJsonl:
 class TestCmdAnnotateJsonl:
     """Tests for cmd_annotate with .jsonl input/output."""
 
-    def test_jsonl_input_and_output(self, tmp_path):
+    @patch("agent_diagnostics.annotator.annotate_trial")
+    @patch("agent_diagnostics.taxonomy.load_taxonomy")
+    def test_jsonl_input_and_output(self, mock_taxonomy, mock_annotate_trial, tmp_path):
         from agent_diagnostics.cli import cmd_annotate
         from agent_diagnostics.signals import write_jsonl
+        from agent_diagnostics.types import CategoryAssignment
 
-        import agent_diagnostics.annotator as _ann_mod
+        mock_taxonomy.return_value = {"version": "3.0"}
+        # Return categories for first call, empty for second
+        mock_annotate_trial.side_effect = [
+            [CategoryAssignment(name="cat1", confidence=0.9, evidence="test")],
+            [],
+        ]
 
         # Write signals as JSONL
-        signals_data = [{"trial_id": "t1"}, {"trial_id": "t2"}]
+        signals_data = [{"task_id": "t1"}, {"task_id": "t2"}]
         signals_file = tmp_path / "signals.jsonl"
         write_jsonl(signals_data, signals_file)
 
-        mock_annotate = MagicMock(
-            return_value={
-                "schema_version": "observatory-annotation-v1",
-                "taxonomy_version": "3.0",
-                "annotations": [
-                    {"task_id": "t1", "categories": [{"name": "cat1"}]},
-                    {"task_id": "t2", "categories": []},
-                ],
-            }
-        )
-        _ann_mod.annotate_all = mock_annotate
-        try:
-            output = tmp_path / "annotations.jsonl"
-            args = argparse.Namespace(signals=str(signals_file), output=str(output))
-            cmd_annotate(args)
+        output = tmp_path / "annotations.jsonl"
+        args = argparse.Namespace(signals=str(signals_file), output=str(output))
+        cmd_annotate(args)
 
-            mock_annotate.assert_called_once()
-            assert output.exists()
+        assert mock_annotate_trial.call_count == 2
+        assert output.exists()
 
-            lines = output.read_text().strip().splitlines()
-            assert len(lines) == 2
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 2
 
-            meta_path = output.with_suffix(".meta.json")
-            assert meta_path.exists()
-            meta = json.loads(meta_path.read_text())
-            assert meta["schema_version"] == "observatory-annotation-v1"
-            assert meta["taxonomy_version"] == "3.0"
-        finally:
-            if hasattr(_ann_mod, "annotate_all"):
-                del _ann_mod.annotate_all
+        meta_path = output.with_suffix(".meta.json")
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta["schema_version"] == "observatory-annotation-v1"
+        assert meta["taxonomy_version"] == "3.0"
 
-    def test_json_input_jsonl_output(self, tmp_path):
+    @patch("agent_diagnostics.annotator.annotate_trial")
+    @patch("agent_diagnostics.taxonomy.load_taxonomy")
+    def test_json_input_jsonl_output(
+        self, mock_taxonomy, mock_annotate_trial, tmp_path
+    ):
         from agent_diagnostics.cli import cmd_annotate
+        from agent_diagnostics.types import CategoryAssignment
 
-        import agent_diagnostics.annotator as _ann_mod
+        mock_taxonomy.return_value = {"version": "3.0"}
+        mock_annotate_trial.return_value = [
+            CategoryAssignment(name="cat1", confidence=0.9, evidence="test")
+        ]
 
         # Write signals as JSON (legacy)
         signals_file = tmp_path / "signals.json"
-        signals_file.write_text(json.dumps([{"trial_id": "t1"}]))
+        signals_file.write_text(json.dumps([{"task_id": "t1"}]))
 
-        mock_annotate = MagicMock(
-            return_value={
-                "annotations": [{"task_id": "t1", "categories": [{"name": "cat1"}]}]
-            }
-        )
-        _ann_mod.annotate_all = mock_annotate
-        try:
-            output = tmp_path / "annotations.jsonl"
-            args = argparse.Namespace(signals=str(signals_file), output=str(output))
-            cmd_annotate(args)
+        output = tmp_path / "annotations.jsonl"
+        args = argparse.Namespace(signals=str(signals_file), output=str(output))
+        cmd_annotate(args)
 
-            assert output.exists()
-            lines = output.read_text().strip().splitlines()
-            assert len(lines) == 1
-        finally:
-            if hasattr(_ann_mod, "annotate_all"):
-                del _ann_mod.annotate_all
+        assert output.exists()
+        lines = output.read_text().strip().splitlines()
+        assert len(lines) == 1
