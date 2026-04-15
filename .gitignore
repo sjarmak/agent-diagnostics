@@ -13,6 +13,7 @@ cache/
 
 # Generated label corpora and training data (rebuildable via scripts)
 data/
+!data/export/
 
 # Gas City worker agent artifacts
 .gc/
