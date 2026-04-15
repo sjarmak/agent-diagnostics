@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-diagnostics"
-version = "0.6.1"
+version = "0.6.2"
 description = "Agent Reliability Observatory — a behavioral taxonomy and annotation framework for analyzing why coding agents succeed or fail."
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,6 +34,7 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4", "mypy>=1.10"]
 
 [project.scripts]
+agent-diagnostics = "agent_diagnostics.cli:main"
 observatory = "agent_diagnostics.cli:main"
 
 [project.urls]

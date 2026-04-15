@@ -8,16 +8,26 @@ A behavioral taxonomy, annotation framework, and shareable dataset backend for a
 
 Coding agents pass benchmarks for the wrong reasons and fail them for the wrong reasons. Pass/fail scores hide reward hacking, flawed tests, and lucky patches. This project extracts structured signals from agent trajectories, classifies failure modes, and provides a queryable dataset backend so you can actually understand what happened.
 
-The pipeline:
-
 ```
 Trial directories (result.json + trajectory.json)
-  -> observatory ingest        (extract 31 structured signals per trial)
-  -> observatory annotate      (heuristic failure classification)
-  -> observatory llm-annotate  (LLM-assisted classification)
-  -> observatory ensemble      (heuristic + classifier ensemble)
-  -> observatory export        (Parquet + MANIFEST.json share artifact)
-  -> observatory query         (SQL via DuckDB, zero server)
+  -> agent-diagnostics ingest        Extract 31 structured signals per trial
+  -> agent-diagnostics annotate      Heuristic failure classification
+  -> agent-diagnostics llm-annotate  LLM-assisted classification
+  -> agent-diagnostics ensemble      Heuristic + classifier ensemble
+  -> agent-diagnostics export        Parquet + MANIFEST.json share artifact
+  -> agent-diagnostics query         SQL via DuckDB, zero server
+```
+
+## Install
+
+```bash
+pip install agent-diagnostics
+```
+
+Includes DuckDB, PyArrow, Anthropic SDK, and jsonschema. For development:
+
+```bash
+pip install agent-diagnostics[dev]   # pytest, ruff, mypy, coverage
 ```
 
 ## Dataset
@@ -37,26 +47,26 @@ Each trial carries 31 structured signals including tool call sequences, files re
 
 ```bash
 # Pass rates by model
-observatory query "SELECT model, count(*) as trials,
+agent-diagnostics query "SELECT model, count(*) as trials,
   round(avg(CASE WHEN passed THEN 1.0 ELSE 0.0 END)*100, 1) as pass_rate
   FROM signals GROUP BY model ORDER BY pass_rate DESC"
 
 # Failure analysis
-observatory query "SELECT model, count(*) FROM signals
-  WHERE passed = false GROUP BY model"
+agent-diagnostics query "SELECT model, count(*) FROM signals WHERE passed = false GROUP BY model"
 
-# Tool usage patterns
-observatory query "$(cat docs/queries/tool_sequence_patterns.sql)"
+# Run any of the 5 committed queries
+agent-diagnostics query "$(cat docs/queries/tool_sequence_patterns.sql)"
+agent-diagnostics query "$(cat docs/queries/per_model_outcomes.sql)"
 ```
 
 ### Export as Parquet
 
 ```bash
 # 21.87 MB JSONL -> ~1 MB zstd Parquet
-observatory export --format parquet --out data/export/
+agent-diagnostics export --format parquet --out data/export/
 
 # Readable in pandas, Polars, R, DuckDB, any Arrow tool
-python3 -c "import pandas; df = pandas.read_parquet('data/export/signals.parquet'); print(df.shape)"
+python3 -c "import pandas as pd; print(pd.read_parquet('data/export/signals.parquet').shape)"
 ```
 
 The export produces `signals.parquet`, `annotations.parquet`, `manifests.parquet`, and a `MANIFEST.json` with schema version, taxonomy version, row counts, SHA256 checksums, and source commit.
@@ -64,20 +74,8 @@ The export produces `signals.parquet`, `annotations.parquet`, `manifests.parquet
 ### Schema introspection
 
 ```bash
-observatory db schema --format markdown   # human-readable
-observatory db schema --format json       # machine-readable
-```
-
-## Install
-
-```bash
-pip install agent-diagnostics
-```
-
-Includes DuckDB, PyArrow, Anthropic SDK, and jsonschema out of the box. For development:
-
-```bash
-pip install agent-diagnostics[dev]        # pytest, ruff, mypy, coverage
+agent-diagnostics db schema --format markdown
+agent-diagnostics db schema --format json
 ```
 
 ## Taxonomy
@@ -101,7 +99,7 @@ pip install agent-diagnostics[dev]        # pytest, ruff, mypy, coverage
 ```python
 from agent_diagnostics import load_taxonomy, valid_category_names
 
-taxonomy = load_taxonomy()   # loads latest version
+taxonomy = load_taxonomy()
 names = valid_category_names()
 ```
 
@@ -112,7 +110,7 @@ names = valid_category_names()
 23 rule-based classifiers that fire on signal patterns (e.g., `retrieval_failure` when search calls = 0 and files read = 0):
 
 ```bash
-observatory annotate --signals data/signals.json --output heuristic.json
+agent-diagnostics annotate --signals data/signals.json --output heuristic.json
 ```
 
 ### LLM annotation
@@ -120,7 +118,7 @@ observatory annotate --signals data/signals.json --output heuristic.json
 Reads actual trajectories and classifies with Claude. Supports `claude-code`, `api`, and `batch` (Message Batches API, 50% cheaper) backends:
 
 ```bash
-observatory llm-annotate --signals data/signals.json --output llm.json \
+agent-diagnostics llm-annotate --signals data/signals.json --output llm.json \
     --sample-size 50 --model haiku --backend batch
 ```
 
@@ -129,8 +127,8 @@ observatory llm-annotate --signals data/signals.json --output llm.json \
 Two-tier: heuristic rules for structural categories, trained classifier for learned categories:
 
 ```bash
-observatory train --labels llm.json --signals signals.json --output model.json
-observatory ensemble --signals signals.json --model model.json --output ensemble.json
+agent-diagnostics train --labels llm.json --signals signals.json --output model.json
+agent-diagnostics ensemble --signals signals.json --model model.json --output ensemble.json
 ```
 
 ### Annotation store
@@ -138,10 +136,10 @@ observatory ensemble --signals signals.json --model model.json --output ensemble
 All annotation writers can route through a shared `AnnotationStore` that enforces primary key uniqueness, atomic writes, and version consistency:
 
 ```bash
-# Each writer appends to a shared narrow-tall JSONL file
-observatory annotate --signals data/signals.json --output heuristic.json \
+agent-diagnostics annotate --signals data/signals.json --output heuristic.json \
     --annotations-out data/annotations.jsonl
-observatory ensemble --signals data/signals.json --model model.json \
+
+agent-diagnostics ensemble --signals data/signals.json --model model.json \
     --output ensemble.json --annotations-out data/annotations.jsonl
 ```
 
@@ -150,20 +148,45 @@ The store uses PK `(trial_id, category_name, annotator_type, annotator_identity,
 ## CLI reference
 
 ```
-observatory extract         Extract signals from trial directories
-observatory ingest          Filter -> extract -> enrich -> write JSONL pipeline
-observatory annotate        Heuristic annotation
-observatory llm-annotate    LLM-assisted annotation
-observatory train           Train per-category classifiers
-observatory predict         Predict with trained classifier
-observatory ensemble        Two-tier ensemble annotation
-observatory report          Generate Markdown + JSON report
-observatory validate        Validate annotations against schema
-observatory query           Run SQL against the dataset (DuckDB)
-observatory export          Export to Parquet with MANIFEST.json
-observatory manifest refresh  Rewrite manifests.jsonl
-observatory db schema       Inspect table schemas
+agent-diagnostics extract          Extract signals from trial directories
+agent-diagnostics ingest           Filter -> extract -> enrich -> write JSONL pipeline
+agent-diagnostics annotate         Heuristic annotation
+agent-diagnostics llm-annotate     LLM-assisted annotation
+agent-diagnostics train            Train per-category classifiers
+agent-diagnostics predict          Predict with trained classifier
+agent-diagnostics ensemble         Two-tier ensemble annotation
+agent-diagnostics report           Generate Markdown + JSON report
+agent-diagnostics validate         Validate annotations against schema
+agent-diagnostics query            Run SQL against the dataset (DuckDB)
+agent-diagnostics export           Export to Parquet with MANIFEST.json
+agent-diagnostics manifest refresh Rewrite manifests.jsonl
+agent-diagnostics db schema        Inspect table schemas
 ```
+
+## Data formats
+
+### signals.jsonl
+
+One JSON object per line. 31 fields per trial including `trial_id` (stable SHA256-based), model, benchmark, reward, pass/fail, tool call counts/sequences, files read/edited, duration, error counts, and patch size.
+
+### annotations.jsonl
+
+Narrow-tall schema — one row per (trial, category, annotator):
+
+| Column               | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `trial_id`           | SHA256-based stable identifier                           |
+| `category_name`      | Taxonomy category (e.g., `retrieval_failure`)            |
+| `confidence`         | 0.0 to 1.0                                               |
+| `evidence`           | Free-text explanation                                    |
+| `annotator_type`     | `heuristic`, `llm`, `classifier`, `ensemble`, or `human` |
+| `annotator_identity` | e.g., `heuristic:rule-engine`, `llm:haiku-4`             |
+| `taxonomy_version`   | e.g., `3.0.0`                                            |
+| `annotated_at`       | ISO 8601 timestamp                                       |
+
+### Parquet export
+
+`agent-diagnostics export` produces zstd-compressed Parquet with native `list<string>` columns. The 21.87 MB JSONL corpus compresses to ~1 MB. Includes `MANIFEST.json` for provenance.
 
 ## Architecture
 
@@ -186,20 +209,6 @@ agent_diagnostics/
   tool_registry.py     Injectable tool name registry
   cli.py               CLI entrypoint (14 subcommands)
 ```
-
-## Data formats
-
-### signals.jsonl
-
-One JSON object per line. 31 fields per trial including `trial_id` (stable SHA256-based), model, benchmark, reward, pass/fail, tool call counts/sequences, files read/edited, duration, error counts, and patch size.
-
-### annotations.jsonl
-
-Narrow-tall schema: one row per (trial, category, annotator). Columns: `trial_id`, `category_name`, `confidence`, `evidence`, `annotator_type`, `annotator_identity`, `taxonomy_version`, `annotated_at`.
-
-### Parquet export
-
-`observatory export` produces zstd-compressed Parquet with native `list<string>` columns. The 21.87 MB JSONL corpus compresses to ~1 MB. Includes `MANIFEST.json` for provenance.
 
 ## Contributing
 
