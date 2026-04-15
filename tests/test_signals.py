@@ -184,6 +184,8 @@ class TestBasicExtraction:
             suite_mapping={"fix_": "test_bench"},
         )
         expected_keys = {
+            "trial_id",
+            "trial_id_full",
             "task_id",
             "model",
             "agent_name",

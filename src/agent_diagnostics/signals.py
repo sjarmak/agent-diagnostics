@@ -7,6 +7,7 @@ replacement for CSB's hardcoded signals.py.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import warnings
 from collections.abc import Callable
@@ -104,6 +105,29 @@ def _get_nested(data: dict[str, Any] | None, *keys: str) -> Any:
             return None
         val = val.get(k)
     return val
+
+
+def compute_trial_id(
+    task_id: str,
+    config_name: str,
+    started_at: str,
+    model: str,
+) -> tuple[str, str]:
+    """Compute a stable trial identifier from the four key fields.
+
+    The trial_id is a deterministic SHA-256 hash of the concatenation
+    ``task_id||config_name||started_at||model`` (using literal ``||`` as
+    separator).
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(trial_id, trial_id_full)`` where *trial_id* is the first 32
+        hex characters and *trial_id_full* is the full 64-hex digest.
+    """
+    payload = f"{task_id}||{config_name}||{started_at}||{model}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return digest[:32], digest
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +551,7 @@ def extract_signals(
     """Extract quantitative reliability signals from a single trial directory.
 
     Reads ``result.json`` and ``trajectory.json`` from *trial_dir* and
-    produces a :class:`TrialSignals` dict with all 29 keys populated
+    produces a :class:`TrialSignals` dict with all 31 keys populated
     (or set to sensible defaults when data is missing).
 
     When *tool_registry* is not explicitly provided, the function reads
@@ -611,6 +635,18 @@ def extract_signals(
         task_id, suite_mapping, benchmark_resolver, trial_dir
     )
 
+    # --- Started at (used for trial_id and duration) ---
+    started_at: str = ""
+    if result:
+        raw_started = result.get("started_at")
+        if isinstance(raw_started, str) and raw_started:
+            started_at = raw_started
+
+    # --- Trial ID ---
+    trial_id, trial_id_full = compute_trial_id(
+        task_id or "", config_name or "", started_at, model or ""
+    )
+
     # --- Duration ---
     duration_seconds = _extract_duration(result)
 
@@ -635,6 +671,8 @@ def extract_signals(
 
     # --- Build TrialSignals ---
     signals: TrialSignals = {
+        "trial_id": trial_id,
+        "trial_id_full": trial_id_full,
         "task_id": task_id or "",
         "model": model or "",
         "agent_name": agent_name,

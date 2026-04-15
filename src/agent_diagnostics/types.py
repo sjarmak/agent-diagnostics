@@ -6,17 +6,19 @@ from dataclasses import dataclass, field
 from typing import Optional, Protocol, Sequence, TypedDict, Union, runtime_checkable
 
 # ---------------------------------------------------------------------------
-# TrialSignals — typed dict of the 26 signal keys extracted from a trial
+# TrialSignals — typed dict of the 31 signal keys extracted from a trial
 # ---------------------------------------------------------------------------
 
 
 class TrialSignals(TypedDict, total=False):
     """Raw signal values extracted from a single benchmark trial.
 
-    All 29 keys are declared; ``total=False`` allows partial construction
+    All 31 keys are declared; ``total=False`` allows partial construction
     during incremental extraction.
     """
 
+    trial_id: str
+    trial_id_full: str
     task_id: str
     model: str
     agent_name: str

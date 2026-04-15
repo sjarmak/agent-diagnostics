@@ -15,18 +15,20 @@ from agent_diagnostics.types import (
 
 
 class TestTrialSignalsImport:
-    """TrialSignals TypedDict is importable and has 29 keys."""
+    """TrialSignals TypedDict is importable and has 31 keys."""
 
     def test_import_succeeds(self) -> None:
         assert TrialSignals is not None
 
-    def test_has_29_keys(self) -> None:
+    def test_has_31_keys(self) -> None:
         hints = get_type_hints(TrialSignals)
-        assert len(hints) == 29, f"Expected 29 keys, got {len(hints)}: {sorted(hints)}"
+        assert len(hints) == 31, f"Expected 31 keys, got {len(hints)}: {sorted(hints)}"
 
     def test_expected_keys_present(self) -> None:
         hints = get_type_hints(TrialSignals)
         expected_keys = {
+            "trial_id",
+            "trial_id_full",
             "task_id",
             "model",
             "agent_name",
