@@ -43,6 +43,7 @@ def test_help_output_includes_all_subcommands():
         "ensemble",
         "ingest",
         "validate",
+        "query",
     ]
     for sub in expected_subcommands:
         assert sub in help_text, f"Subcommand '{sub}' not found in --help output"

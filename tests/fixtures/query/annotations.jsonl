@@ -1,0 +1,5 @@
+{"task_id": "task-alpha-001", "category": "premature_termination", "confidence": 0.85, "annotator": "heuristic"}
+{"task_id": "task-alpha-001", "category": "incomplete_verification", "confidence": 0.72, "annotator": "heuristic"}
+{"task_id": "task-beta-002", "category": "clean_success", "confidence": 0.95, "annotator": "heuristic"}
+{"task_id": "task-gamma-003", "category": "tool_argument_error", "confidence": 0.88, "annotator": "llm"}
+{"task_id": "task-delta-004", "category": "rate_limited", "confidence": 0.91, "annotator": "llm"}

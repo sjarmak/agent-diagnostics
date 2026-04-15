@@ -384,6 +384,19 @@ def cmd_ingest(args):
     )
 
 
+def cmd_query(args):
+    """Run a SQL query against observatory data via DuckDB."""
+    from agent_diagnostics.query import format_table, run_query
+
+    try:
+        rows = run_query(args.sql, args.data_dir)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(format_table(rows))
+
+
 def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
@@ -599,6 +612,18 @@ def main():
         "--annotations", required=True, help="Annotation JSON file to validate"
     )
     p_validate.set_defaults(func=cmd_validate)
+
+    # query
+    p_query = subparsers.add_parser(
+        "query", help="Run a SQL query against observatory data via DuckDB"
+    )
+    p_query.add_argument("sql", help="SQL query string")
+    p_query.add_argument(
+        "--data-dir",
+        default="data/",
+        help="Root data directory (default: data/)",
+    )
+    p_query.set_defaults(func=cmd_query)
 
     args = parser.parse_args()
     if args.command is None:

@@ -1,0 +1,2 @@
+{"manifest_id": "manifest-001", "benchmark": "sdlc_secure", "task_count": 25, "created_at": "2026-03-10T12:00:00Z"}
+{"manifest_id": "manifest-002", "benchmark": "bigcode_mcp", "task_count": 40, "created_at": "2026-03-15T08:30:00Z"}
