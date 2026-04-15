@@ -1,241 +1,217 @@
 [
   {
-    "id": "unit-trial-filter",
-    "name": "MH-1: Trial filter predicate",
-    "description": "Add _is_valid_trial(data) to signals.py that requires agent_info key in result.json and rejects harness summaries. Exclude directories matching __archived_invalid, __incomplete, __pre_sgenv_fix, __verifier_path_bug, __doubled_prefix patterns. Wire into extract_all() so it skips invalid trials. Add has_verifier_result bool field to TrialSignals.",
+    "id": "trial-id",
+    "name": "Stable trial_id primary key (M3)",
+    "description": "Add trial_id = sha256(task_id || config_name || started_at || model)[:32] and trial_id_full (64 hex) to TrialSignals. Compute during signal extraction in signals.py. Add both fields to TrialSignals TypedDict in types.py. Include the 7 property tests from the PRD spec plus the real-corpus collision test.",
     "deps": [],
     "tier": "medium",
     "acceptance": [
-      "Function _is_valid_trial(data: dict) -> bool exists in signals.py",
-      "Returns False when data has no 'agent_info' key",
-      "Returns True when data has 'agent_info' key and dir is not excluded",
-      "extract_all() calls _is_valid_trial() and skips invalid trials",
-      "Directories matching __archived_invalid, __incomplete, __pre_sgenv_fix, __verifier_path_bug, __doubled_prefix are excluded",
-      "Tests cover: harness summary rejection, valid trial acceptance, excluded dir patterns, extract_all filtering",
-      "python3 -m pytest tests/test_signals.py passes with 0 failures"
+      "TrialSignals TypedDict in types.py declares 'trial_id: str' and 'trial_id_full: str'",
+      "extract_signals() in signals.py computes trial_id from sha256(task_id||config_name||started_at||model)[:32] using '||' literal separator",
+      "trial_id_full is the full 64-hex sha256, trial_id is the first 32 hex characters",
+      "tests/test_trial_id.py contains all 7 property tests (P1-P7) from the PRD spec and they pass",
+      "pytest tests/test_trial_id.py passes with 0 failures",
+      "write_jsonl() output includes trial_id and trial_id_full in each row"
     ],
     "layer": 0,
     "scope": [
       "src/agent_diagnostics/signals.py",
-      "tests/test_signals.py"
-    ],
-    "status": "landed",
-    "branch": "0fda72e",
-    "pipeline_stage": null,
-    "pipeline_output": {},
-    "eviction_context": null,
-    "pass_number": 1
-  },
-  {
-    "id": "unit-nullable-reward",
-    "name": "MH-2: Nullable reward + provenance flags",
-    "description": "Change reward in TrialSignals from float default-to-0.0 to float|None when no verifier result exists. Add has_verifier_result: bool field to TrialSignals. Update extract_signals() to set reward=None and has_verifier_result=False when no verifier_result in result.json. Update annotate_trial() and all 32 heuristic checkers to handle None reward gracefully (skip reward-dependent heuristics when reward is None). Update classifier signals_to_features() to handle None reward. Update ensemble and report to handle None reward.",
-    "deps": [],
-    "tier": "large",
-    "acceptance": [
-      "TrialSignals TypedDict includes has_verifier_result: bool field",
-      "extract_signals() sets reward=None when no verifier_result in result.json",
-      "extract_signals() sets has_verifier_result=False when no verifier_result",
-      "annotate_trial() skips reward-dependent heuristics when reward is None instead of crashing",
-      "classifier.signals_to_features() handles None reward (converts to 0.0 for feature vector)",
-      "No TypeError or comparison errors when reward is None throughout the pipeline",
-      "All existing tests updated to pass: python3 -m pytest passes with 0 failures"
-    ],
-    "layer": 0,
-    "scope": [
       "src/agent_diagnostics/types.py",
-      "src/agent_diagnostics/signals.py",
-      "src/agent_diagnostics/annotator.py",
-      "src/agent_diagnostics/classifier.py",
-      "src/agent_diagnostics/ensemble.py",
-      "src/agent_diagnostics/report.py",
-      "tests/test_signals.py",
-      "tests/test_annotator.py",
-      "tests/test_classifier.py",
-      "tests/test_ensemble.py",
-      "tests/test_report.py",
-      "tests/test_types.py"
+      "tests/test_trial_id.py"
     ],
     "status": "landed",
-    "branch": "7904811",
+    "branch": "65f708f",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
     "pass_number": 1
   },
   {
-    "id": "unit-openhands-registry",
-    "name": "MH-5: OpenHands tool registry",
-    "description": "Create OPENHANDS_REGISTRY in tool_registry.py mapping str_replace_editor -> edit_tools, execute_bash -> search_tools (shell), browser -> code_nav_tools. Add a get_registry_for_agent(agent_name: str) function that returns OPENHANDS_REGISTRY for openhands agents and DEFAULT_REGISTRY otherwise. Wire auto-selection into extract_signals() based on agent_info.name in result.json.",
+    "id": "models-yaml-and-deps",
+    "name": "Models identity mapping + dependency pins (M0 prereq, R4/D5)",
+    "description": "Create src/agent_diagnostics/models.yaml mapping logical annotator identities (e.g. 'llm:haiku-4') to Anthropic snapshot model IDs. Add a load_models_config() helper in a new src/agent_diagnostics/model_identity.py that loads models.yaml and provides resolve_identity(snapshot_id) -> logical identity and resolve_snapshot(logical_id) -> snapshot_id. Pin duckdb>=1.0,<2.0 and pyarrow>=15.0,<18.0 in pyproject.toml[project.optional-dependencies] under a new 'query' extra. Add tests for model identity resolution.",
     "deps": [],
     "tier": "small",
     "acceptance": [
-      "OPENHANDS_REGISTRY exists in tool_registry.py with str_replace_editor in edit_tools and execute_bash in search_tools",
-      "get_registry_for_agent('openhands') returns OPENHANDS_REGISTRY",
-      "get_registry_for_agent('claude-code') returns DEFAULT_REGISTRY",
-      "extract_signals() auto-selects registry from agent_info.name when tool_registry is not explicitly passed",
-      "Tests cover registry creation, agent-based selection, and signal extraction with OpenHands tools",
-      "python3 -m pytest tests/test_tool_registry.py tests/test_signals.py passes with 0 failures"
+      "src/agent_diagnostics/models.yaml exists with mappings for llm:haiku-4, llm:sonnet-4, llm:opus-4 to current Anthropic snapshot IDs",
+      "src/agent_diagnostics/model_identity.py exports load_models_config() and resolve_identity(snapshot_id) -> logical_identity",
+      "resolve_identity('claude-haiku-4-5-20251001') returns 'llm:haiku-4'",
+      "resolve_identity with an unknown snapshot ID raises a clear ValueError",
+      "pyproject.toml has a 'query' optional-dependency group with duckdb and pyarrow pins",
+      "pytest tests/test_model_identity.py passes with 0 failures"
     ],
     "layer": 0,
     "scope": [
-      "src/agent_diagnostics/tool_registry.py",
-      "tests/test_tool_registry.py",
-      "src/agent_diagnostics/signals.py"
+      "src/agent_diagnostics/models.yaml",
+      "src/agent_diagnostics/model_identity.py",
+      "pyproject.toml",
+      "tests/test_model_identity.py"
     ],
     "status": "landed",
-    "branch": "841e2b1",
+    "branch": "d2a9f39",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
     "pass_number": 1
   },
   {
-    "id": "unit-manifest-integration",
-    "name": "MH-4: MANIFEST.json integration",
-    "description": "Add a load_manifest(path) function that parses MANIFEST.json to build a suite_mapping dict. Add directory-name convention fallback for benchmark resolution (e.g. csb_crossrepo_* -> crossrepo, openhands_* -> openhands). Add benchmark_source field to TrialSignals indicating 'manifest', 'directory', or empty. Wire into extract_signals() via the existing benchmark_resolver parameter.",
-    "deps": [],
-    "tier": "medium",
+    "id": "annotation-store",
+    "name": "AnnotationStore write contract (M0 core)",
+    "description": "Create src/agent_diagnostics/annotation_store.py implementing the AnnotationStore class with narrow-tall JSONL schema. The store must: (a) enforce PK uniqueness (trial_id, category_name, annotator_type, annotator_identity, taxonomy_version) per upsert_annotations() call; (b) append/merge to annotations.jsonl in narrow-tall schema (columns: trial_id, category_name, confidence, evidence, annotator_type, annotator_identity, taxonomy_version, annotated_at); (c) write atomically via temp-file + os.rename; (d) hold advisory lock (fcntl.flock on Unix) across read-merge-write with documented cross-platform note; (e) refuse mixed-version writes — if incoming taxonomy_version or schema_version differs from existing, raise MixedVersionError; (f) resolve annotator_identity via model_identity.resolve_identity(). Readers dedupe last-writer-wins by annotated_at.",
+    "deps": ["trial-id", "models-yaml-and-deps"],
+    "tier": "large",
     "acceptance": [
-      "load_manifest(path) function exists and returns a dict usable as suite_mapping",
-      "Directory-name convention fallback resolves common prefixes: csb_crossrepo -> crossrepo, openhands -> openhands",
-      "benchmark_source field added to TrialSignals: 'manifest', 'directory', or empty string",
-      "Tests cover: manifest parsing, directory-name fallback, benchmark_source provenance",
-      "python3 -m pytest tests/test_signals.py passes with 0 failures"
-    ],
-    "layer": 0,
-    "scope": [
-      "src/agent_diagnostics/signals.py",
-      "src/agent_diagnostics/types.py",
-      "tests/test_signals.py"
-    ],
-    "status": "landed",
-    "branch": "ebec0ed",
-    "pipeline_stage": null,
-    "pipeline_output": {},
-    "eviction_context": null,
-    "pass_number": 1
-  },
-  {
-    "id": "unit-trajectory-denominators",
-    "name": "MH-3: Trajectory-aware denominators in reporting",
-    "description": "Add requires_trajectory metadata to heuristic checkers (derived from taxonomy signal_dependencies). Update generate_report() to show separate sections: 'Trajectory-Dependent Categories' with denominator=trajectory-available trials, and 'Reward-Dependent Categories' with denominator=full corpus. Ensure retrieval_failure rate is computed against trajectory-available trials only.",
-    "deps": [
-      "unit-nullable-reward"
-    ],
-    "tier": "medium",
-    "acceptance": [
-      "Each heuristic checker has a requires_trajectory classification (via metadata dict or taxonomy lookup)",
-      "generate_report() output markdown shows 'Trajectory-Dependent Categories' section with correct denominator",
-      "generate_report() output markdown shows 'Reward-Dependent Categories' section with correct denominator",
-      "retrieval_failure rate uses trajectory-available trials as denominator, not full corpus",
-      "Report JSON includes denominator info: {category: {count: N, denominator: M, rate: N/M}}",
-      "Tests cover: denominator splitting, retrieval_failure denominator, JSON structure",
-      "python3 -m pytest tests/test_report.py tests/test_annotator.py passes with 0 failures"
+      "src/agent_diagnostics/annotation_store.py exports AnnotationStore class and MixedVersionError exception",
+      "upsert_annotations() enforces PK uniqueness — duplicate PK raises clear error naming the offending key",
+      "Writing taxonomy_version='v4' to a file with existing 'v3' rows raises MixedVersionError naming both versions",
+      "Writes use atomic temp-file + os.rename pattern",
+      "Advisory file locking via fcntl.flock on Unix with documented Windows note",
+      "annotator_identity is resolved via model_identity — raw snapshot IDs never stored in JSONL",
+      "read_annotations() returns deduplicated rows (last-writer-wins by annotated_at)",
+      "pytest tests/test_annotation_store.py passes with 0 failures"
     ],
     "layer": 1,
     "scope": [
-      "src/agent_diagnostics/annotator.py",
-      "src/agent_diagnostics/report.py",
-      "tests/test_report.py",
-      "tests/test_annotator.py"
+      "src/agent_diagnostics/annotation_store.py",
+      "tests/test_annotation_store.py"
     ],
     "status": "landed",
-    "branch": "51eea82",
+    "branch": "bcce2af",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
     "pass_number": 1
   },
   {
-    "id": "unit-jsonl-format",
-    "name": "SH-1: JSONL output format",
-    "description": "Update extract_all() and annotate CLI commands to support .jsonl output (one JSON object per line). Write a sidecar .meta.json with schema_version, taxonomy_version, generated_at. CLI commands detect format from output file extension (.json for legacy, .jsonl for new). Add read helpers that load both formats transparently.",
-    "deps": [
-      "unit-trial-filter"
-    ],
+    "id": "duckdb-query",
+    "name": "DuckDB query subcommand (M1)",
+    "description": "Create src/agent_diagnostics/query.py with run_query(sql, data_dir) that: auto-registers 'signals', 'annotations', 'manifests' table aliases from JSONL or Parquet files in data_dir (prefer Parquet in data_dir/export/ if present); runs SQL via DuckDB; returns results as list of dicts. Add 'observatory query \"SELECT ...\"' subcommand to cli.py with --data-dir (default 'data/'). Print results as formatted table. Include tests with small fixture JSONL files. Note: cli.py already has subcommand pattern via argparse — add the 'query' subcommand to main() and a new cmd_query() function.",
+    "deps": ["models-yaml-and-deps"],
     "tier": "medium",
     "acceptance": [
-      "extract CLI writes .jsonl when output path ends in .jsonl",
-      "Each line of .jsonl is a valid JSON object (one trial per line)",
-      "A .meta.json sidecar is written alongside .jsonl with schema_version, taxonomy_version, generated_at",
-      "CLI extract command works with both .json and .jsonl output paths",
-      "CLI annotate command works with both .json and .jsonl input/output",
-      "Helper function load_signals(path) transparently reads both formats",
-      "Tests cover: jsonl write/read roundtrip, meta sidecar content, format detection",
-      "python3 -m pytest tests/test_cli.py tests/test_signals.py passes with 0 failures"
+      "src/agent_diagnostics/query.py exports run_query(sql, data_dir) function",
+      "Auto-registers 'signals', 'annotations', 'manifests' table aliases from JSONL or Parquet",
+      "Prefers Parquet files when both JSONL and Parquet exist",
+      "observatory query 'SELECT count(*) as n FROM signals' works against test fixture JSONL",
+      "cli.py has 'query' subcommand via cmd_query() with --data-dir option",
+      "Only requires duckdb as runtime dependency (already pinned in query extra)",
+      "pytest tests/test_query.py passes with 0 failures"
     ],
     "layer": 1,
     "scope": [
-      "src/agent_diagnostics/signals.py",
-      "src/agent_diagnostics/cli.py",
-      "tests/test_cli.py",
-      "tests/test_signals.py"
+      "src/agent_diagnostics/query.py",
+      "tests/test_query.py",
+      "tests/fixtures/query/"
     ],
     "status": "landed",
-    "branch": "945ba7e",
+    "branch": "36b8f02",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
     "pass_number": 1
   },
   {
-    "id": "unit-ingest-command",
-    "name": "SH-2: observatory ingest command",
-    "description": "Add 'observatory ingest' CLI subcommand that runs filter -> extract -> enrich (from MANIFEST) -> write JSONL in one command. Accepts --manifest, --runs-dir, --output, --state flags. Incremental mode: tracks {trial_path, mtime, size} in a state JSON file, only re-extracts changed trials on subsequent runs.",
-    "deps": [
-      "unit-trial-filter",
-      "unit-jsonl-format",
-      "unit-manifest-integration"
-    ],
-    "tier": "medium",
+    "id": "writer-refactor",
+    "name": "Refactor annotation writers to use AnnotationStore (M0 writers)",
+    "description": "Refactor the four annotation writers to write through AnnotationStore.upsert_annotations() instead of raw json.dump. Each writer converts output to narrow-tall schema before calling upsert. Writers: (1) cmd_annotate -> annotator_type='heuristic', annotator_identity='heuristic:rule-engine'; (2) cmd_llm_annotate -> annotator_type='llm', identity resolved from model arg via models.yaml; (3) cmd_predict -> annotator_type='classifier'; (4) cmd_ensemble/ensemble_all -> annotator_type='ensemble'. ensemble_all should read via AnnotationStore.read_annotations() not its own merge loop. Keep ensemble_all as public API in __init__.py. Add --annotations-out arg (default data/annotations.jsonl) to each command. Add integration test: run all 4 writers sequentially on 20-trial fixture, verify zero duplicate PKs in output.",
+    "deps": ["annotation-store"],
+    "tier": "large",
     "acceptance": [
-      "'observatory ingest --runs-dir X --output Y' command exists and works",
-      "ingest writes JSONL output with one trial per line",
-      "ingest uses _is_valid_trial to filter harness summaries",
-      "ingest accepts --manifest flag and uses it for benchmark resolution",
-      "ingest accepts --state flag for incremental mode",
-      "Running ingest twice with no changes produces identical output (mtime skip)",
-      "Tests cover: basic ingest, incremental skip, manifest flag, state file creation",
-      "python3 -m pytest tests/test_cli.py passes with 0 failures"
+      "cmd_annotate writes via AnnotationStore with annotator_type='heuristic'",
+      "cmd_llm_annotate writes via AnnotationStore with annotator_type='llm'",
+      "cmd_predict writes via AnnotationStore with annotator_type='classifier'",
+      "cmd_ensemble/ensemble_all writes via AnnotationStore with annotator_type='ensemble'",
+      "ensemble_all remains exported from __init__.py (R9 backwards compat)",
+      "Running all 4 writers sequentially on test fixture produces zero duplicate PKs",
+      "pytest tests/test_writer_refactor.py passes with 0 failures"
     ],
     "layer": 2,
     "scope": [
       "src/agent_diagnostics/cli.py",
-      "tests/test_cli.py"
+      "src/agent_diagnostics/ensemble.py",
+      "tests/test_writer_refactor.py"
     ],
     "status": "landed",
-    "branch": "54e096e",
+    "branch": "ec83b81",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,
     "pass_number": 1
   },
   {
-    "id": "unit-cooccurrence-dimensions",
-    "name": "SH-3+SH-4: Co-occurrence matrix and dimension aggregation",
-    "description": "Add category co-occurrence matrix computation (pairwise counts + phi coefficients) to report.py. Add dimension-level aggregation that rolls up categories to parent dimensions using taxonomy_v3.yaml. Output co-occurrence as symmetric matrix (JSON). Add 'Dimension Summary' section to generate_report() showing failure rate per dimension.",
-    "deps": [
-      "unit-trajectory-denominators"
-    ],
-    "tier": "medium",
+    "id": "parquet-export",
+    "name": "Parquet export + manifest (M4, M5)",
+    "description": "Create src/agent_diagnostics/export.py with export_parquet(data_dir, out_dir) that reads signals.jsonl and annotations.jsonl from data_dir, writes signals.parquet (native list<string> columns, zstd compression), annotations.parquet, manifests.parquet to out_dir, plus MANIFEST.json with {schema_version, taxonomy_version, row_count, sha256_per_file, source_commit, generated_at}. Compute version via SELECT DISTINCT (R6) and fail if >1 version found. Add 'observatory export --format parquet --out data/export/' subcommand to cli.py. Add 'observatory manifest refresh' that rewrites manifests.jsonl only. Commit MANIFEST.json schema at src/agent_diagnostics/export_manifest_schema.json. Re-running on unchanged inputs must produce byte-identical Parquet except generated_at in MANIFEST. Use sorted row order for determinism. Include tests.",
+    "deps": ["trial-id", "models-yaml-and-deps", "duckdb-query"],
+    "tier": "large",
     "acceptance": [
-      "co_occurrence_matrix(annotations) function returns symmetric dict-of-dicts with phi coefficients",
-      "Matrix diagonal contains category prevalence counts",
-      "Off-diagonal phi coefficients are in [-1, 1]",
-      "dimension_aggregation(annotations, taxonomy) returns per-dimension failure rates",
-      "generate_report() includes 'Dimension Summary' section in markdown",
-      "Report JSON includes dimension_summary key with {dimension: {failure_rate, trial_count}} structure",
-      "Tests cover: matrix shape, phi coefficient bounds, dimension rollup, report section presence",
-      "python3 -m pytest tests/test_report.py passes with 0 failures"
+      "src/agent_diagnostics/export.py exports export_parquet(data_dir, out_dir)",
+      "signals.parquet has native list<string> columns (tool_call_sequence, files_read_list, files_edited_list)",
+      "Parquet files use zstd compression",
+      "MANIFEST.json has schema_version, taxonomy_version, row_count, sha256_per_file, source_commit, generated_at",
+      "MANIFEST.json validates against export_manifest_schema.json",
+      "pandas.read_parquet on signals.parquet works with only pandas+pyarrow",
+      "Re-running on unchanged inputs produces byte-identical Parquet",
+      "observatory export and observatory manifest refresh subcommands work",
+      "pytest tests/test_export.py passes with 0 failures"
     ],
     "layer": 2,
     "scope": [
-      "src/agent_diagnostics/report.py",
-      "tests/test_report.py"
+      "src/agent_diagnostics/export.py",
+      "src/agent_diagnostics/export_manifest_schema.json",
+      "tests/test_export.py"
     ],
     "status": "landed",
-    "branch": "3df6fcf",
+    "branch": "b44815f",
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  },
+  {
+    "id": "target-queries-and-schema",
+    "name": "5 target queries + schema introspection (S4, S2)",
+    "description": "Commit 5 SQL queries to docs/queries/: (1) per_model_outcomes.sql, (2) benchmark_model_matrix.sql, (3) annotation_cooccurrence.sql, (4) tool_sequence_patterns.sql, (5) eval_subset_export.sql. Each runs via run_query(). Add 'observatory db schema [--format json|markdown]' subcommand that emits schema of signals/annotations/manifests (reads pyarrow schema for Parquet, DuckDB inferred for JSONL). Add pytest tests verifying each query runs and returns expected column names.",
+    "deps": ["duckdb-query", "parquet-export"],
+    "tier": "medium",
+    "acceptance": [
+      "docs/queries/ has 5 SQL files covering the 5 query categories",
+      "All 5 queries run via run_query() against test fixture data without errors",
+      "Each query has a pytest test verifying output column names",
+      "observatory db schema --format json emits schema as JSON",
+      "observatory db schema --format markdown emits human-readable schema table",
+      "pytest tests/test_target_queries.py passes with 0 failures"
+    ],
+    "layer": 3,
+    "scope": [
+      "docs/queries/",
+      "tests/test_target_queries.py",
+      "src/agent_diagnostics/query.py"
+    ],
+    "status": "landed",
+    "branch": "350ecf2",
+    "pipeline_stage": null,
+    "pipeline_output": {},
+    "eviction_context": null,
+    "pass_number": 1
+  },
+  {
+    "id": "regression-guard",
+    "name": "JSONL pipeline regression guard (M6)",
+    "description": "Verify all existing tests pass after all changes. Add tests/test_regression_guard.py that: (1) confirms signals.jsonl rows contain trial_id and trial_id_full as the only new fields vs pre-PRD TrialSignals keys, (2) confirms trajectory fields (tool_call_sequence, files_read_list, files_edited_list) remain inline in signals.jsonl, (3) confirms annotation_schema.json validation still works. Run the full existing test suite and confirm 0 failures.",
+    "deps": ["writer-refactor", "parquet-export"],
+    "tier": "small",
+    "acceptance": [
+      "The existing test suite (pytest tests/) passes with 0 failures after all PRD changes",
+      "tests/test_regression_guard.py verifies trial_id and trial_id_full are the only new TrialSignals fields",
+      "tests/test_regression_guard.py verifies trajectory fields remain inline",
+      "No existing test was modified to make it pass",
+      "pytest tests/test_regression_guard.py passes with 0 failures"
+    ],
+    "layer": 3,
+    "scope": ["tests/test_regression_guard.py"],
+    "status": "landed",
+    "branch": "1288134",
     "pipeline_stage": null,
     "pipeline_output": {},
     "eviction_context": null,

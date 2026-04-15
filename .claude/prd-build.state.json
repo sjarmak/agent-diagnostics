@@ -1,9 +1,9 @@
 {
   "status": "done",
-  "prd_path": "prd_agent_trace_dataset_pipeline.md",
+  "prd_path": "prd_shareable_dataset_backend.md",
   "max_passes": 3,
   "max_parallel": 5,
   "current_pass": 1,
-  "integration_branch": "prd-build/agent-trace-dataset-pipeline",
-  "started_at": "2026-04-12T00:00:00Z"
+  "integration_branch": "prd-build/shareable-dataset-backend",
+  "started_at": "2026-04-15T12:00:00Z"
 }
