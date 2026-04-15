@@ -21,3 +21,8 @@ data/
 .dolt/
 *.db
 .beads-credential-key
+.beads/
+
+# Environment and lock files
+.env
+uv.lock
