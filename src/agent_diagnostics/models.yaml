@@ -1,0 +1,15 @@
+# Logical annotator identities → Anthropic snapshot model IDs.
+# The first snapshot_id in each list is the "current" default snapshot.
+
+models:
+  llm:haiku-4:
+    snapshot_ids:
+      - claude-haiku-4-5-20251001
+  llm:sonnet-4:
+    snapshot_ids:
+      - claude-sonnet-4-6-20260514
+      - claude-sonnet-4-5-20250514
+  llm:opus-4:
+    snapshot_ids:
+      - claude-opus-4-6-20260514
+      - claude-opus-4-5-20250514
