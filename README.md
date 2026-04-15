@@ -36,8 +36,6 @@ Each trial carries 31 structured signals including tool call sequences, files re
 ### Query the dataset
 
 ```bash
-pip install agent-diagnostics[query]   # adds duckdb + pyarrow
-
 # Pass rates by model
 observatory query "SELECT model, count(*) as trials,
   round(avg(CASE WHEN passed THEN 1.0 ELSE 0.0 END)*100, 1) as pass_rate
@@ -76,13 +74,10 @@ observatory db schema --format json       # machine-readable
 pip install agent-diagnostics
 ```
 
-Optional extras:
+Includes DuckDB, PyArrow, Anthropic SDK, and jsonschema out of the box. For development:
 
 ```bash
-pip install agent-diagnostics[query]      # DuckDB + PyArrow (query & export)
-pip install agent-diagnostics[llm]        # LLM annotation (Anthropic SDK)
-pip install agent-diagnostics[validation] # JSON schema validation
-pip install agent-diagnostics[dev]        # pytest, ruff, coverage
+pip install agent-diagnostics[dev]        # pytest, ruff, mypy, coverage
 ```
 
 ## Taxonomy
