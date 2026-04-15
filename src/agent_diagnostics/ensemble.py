@@ -80,8 +80,25 @@ def ensemble_all(
     model: dict,
     classifier_threshold: float = 0.5,
     classifier_min_f1: float = 0.7,
+    annotations_out: str | None = None,
 ) -> dict:
-    """Run ensemble annotation on the full corpus."""
+    """Run ensemble annotation on the full corpus.
+
+    Parameters
+    ----------
+    signals_list:
+        List of signal dicts, one per trial.
+    model:
+        Trained classifier model dict.
+    classifier_threshold:
+        Prediction threshold for classifier tier.
+    classifier_min_f1:
+        Minimum eval F1 to trust a classifier category.
+    annotations_out:
+        Optional path to a JSONL file.  When provided, narrow-tall rows
+        are written via :class:`~agent_diagnostics.annotation_store.AnnotationStore`
+        in addition to the returned dict.
+    """
     taxonomy = load_taxonomy()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -111,6 +128,7 @@ def ensemble_all(
                 "passed": bool(sig.get("passed")),
                 "categories": clean_cats,
                 "annotated_at": now,
+                "trial_id": sig.get("trial_id", ""),
             }
         )
         # Track tier counts from unstripped cats
@@ -118,9 +136,47 @@ def ensemble_all(
             source = c.get("source", "unknown")
             tier_counts[source] = tier_counts.get(source, 0) + 1
 
-    return {
+    taxonomy_version = str(taxonomy["version"])
+
+    # Write to AnnotationStore if annotations_out is provided
+    if annotations_out:
+        from pathlib import Path
+
+        from agent_diagnostics.annotation_store import AnnotationStore
+        from agent_diagnostics.signals import compute_trial_id
+
+        rows: list[dict] = []
+        for ann in annotations:
+            trial_id = ann.get("trial_id", "")
+            if not trial_id:
+                tid, _ = compute_trial_id(
+                    ann.get("task_id", ""),
+                    ann.get("config_name", ""),
+                    ann.get("started_at", ""),
+                    ann.get("model", ""),
+                )
+                trial_id = tid
+            annotated_at = ann.get("annotated_at", now)
+            for cat in ann.get("categories", []):
+                rows.append(
+                    {
+                        "trial_id": trial_id,
+                        "category_name": cat.get("name", ""),
+                        "confidence": cat.get("confidence", 0.0),
+                        "evidence": cat.get("evidence", ""),
+                        "annotator_type": "ensemble",
+                        "annotator_identity": "ensemble:heuristic+classifier",
+                        "taxonomy_version": taxonomy_version,
+                        "annotated_at": annotated_at,
+                    }
+                )
+        if rows:
+            store = AnnotationStore(Path(annotations_out))
+            store.upsert_annotations(rows, taxonomy_version=taxonomy_version)
+
+    result = {
         "schema_version": "observatory-annotation-v1",
-        "taxonomy_version": str(taxonomy["version"]),
+        "taxonomy_version": taxonomy_version,
         "generated_at": now,
         "annotator": {
             "type": "ensemble",
@@ -134,3 +190,10 @@ def ensemble_all(
         },
         "annotations": annotations,
     }
+
+    # Strip trial_id from annotations in the returned dict for backwards compat
+    # (the legacy format does not include trial_id at the annotation level)
+    for ann in result["annotations"]:
+        ann.pop("trial_id", None)
+
+    return result
