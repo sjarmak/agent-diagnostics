@@ -72,6 +72,78 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
     return [dict(zip(columns, row)) for row in rows]
 
 
+def get_schema(
+    data_dir: str | Path = "data/",
+    fmt: str = "markdown",
+) -> str:
+    """Return column-level schema for all registered tables.
+
+    For each table in :data:`TABLE_NAMES` that has a backing file, runs
+    ``DESCRIBE SELECT * FROM <table>`` and collects column names and types.
+
+    Parameters
+    ----------
+    data_dir:
+        Root data directory. Defaults to ``"data/"``.
+    fmt:
+        Output format — ``"json"`` or ``"markdown"`` (default).
+
+    Returns
+    -------
+    str
+        Schema information formatted as JSON or a Markdown table.
+    """
+    import json
+
+    import duckdb
+
+    data_path = Path(data_dir)
+    con = duckdb.connect(":memory:")
+
+    schema: dict[str, list[dict[str, str]]] = {}
+
+    for name in TABLE_NAMES:
+        parquet_path = data_path / "export" / f"{name}.parquet"
+        jsonl_path = data_path / f"{name}.jsonl"
+
+        if parquet_path.is_file():
+            escaped = str(parquet_path).replace("'", "''")
+            con.execute(
+                f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')"
+            )
+        elif jsonl_path.is_file():
+            escaped = str(jsonl_path).replace("'", "''")
+            con.execute(
+                f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
+            )
+        else:
+            continue
+
+        result = con.execute(f"DESCRIBE SELECT * FROM {name}")
+        columns = []
+        for row in result.fetchall():
+            columns.append({"column_name": row[0], "column_type": row[1]})
+        schema[name] = columns
+
+    con.close()
+
+    if fmt == "json":
+        return json.dumps(schema, indent=2)
+
+    # Markdown format
+    lines: list[str] = []
+    for table_name, columns in schema.items():
+        lines.append(f"## {table_name}")
+        lines.append("")
+        lines.append("| Column | Type |")
+        lines.append("|--------|------|")
+        for col in columns:
+            lines.append(f"| {col['column_name']} | {col['column_type']} |")
+        lines.append("")
+
+    return "\n".join(lines) if lines else "(no tables found)"
+
+
 def format_table(rows: list[dict[str, Any]]) -> str:
     """Format *rows* as a simple ASCII table.
 

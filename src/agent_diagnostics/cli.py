@@ -530,6 +530,19 @@ def cmd_ingest(args):
     )
 
 
+def cmd_db_schema(args):
+    """Emit schema of signals/annotations/manifests tables."""
+    from agent_diagnostics.query import get_schema
+
+    try:
+        output = get_schema(args.data_dir, fmt=args.format)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(output)
+
+
 def cmd_query(args):
     """Run a SQL query against observatory data via DuckDB."""
     from agent_diagnostics.query import format_table, run_query
@@ -871,6 +884,25 @@ def main():
         help="Root data directory (default: data/)",
     )
     p_manifest_refresh.set_defaults(func=cmd_manifest_refresh)
+
+    # db
+    p_db = subparsers.add_parser("db", help="Database introspection commands")
+    db_sub = p_db.add_subparsers(dest="db_command", help="Database subcommands")
+    p_db_schema = db_sub.add_parser(
+        "schema", help="Emit schema of signals/annotations/manifests tables"
+    )
+    p_db_schema.add_argument(
+        "--format",
+        default="markdown",
+        choices=["json", "markdown"],
+        help="Output format (default: markdown)",
+    )
+    p_db_schema.add_argument(
+        "--data-dir",
+        default="data/",
+        help="Root data directory (default: data/)",
+    )
+    p_db_schema.set_defaults(func=cmd_db_schema)
 
     args = parser.parse_args()
     if args.command is None:
