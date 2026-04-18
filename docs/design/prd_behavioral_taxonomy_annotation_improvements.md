@@ -57,8 +57,8 @@ These were resolved via structured debate before implementation:
   - Expect: exit code 0
   - Run: `pytest tests/contracts/taxonomy_v3_contract.py -v`
   - Expect: exit code 0; contract defines exact `signal_dependencies` format (flat signal names, not dotted paths), `valid_category_names()` return type, and fixture schema
-  - Run: `python3 -c "from agent_diagnostics.llm_annotator import build_prompt; from agent_diagnostics.types import TrialSignals; import json; prompt = build_prompt({'task_id': 'test', 'reward': 0.5, 'passed': True, 'exception_info': 'err', 'search_tool_calls': 1}, []); assert 'reward' not in prompt.lower().split('untrusted')[0]; print('PASS')"`
-  - Expect: exit code 0; build_prompt does not include redacted fields in the signals section
+  - Run: `python3 -c "from agent_diagnostics.llm_annotator import build_prompt; prompt = build_prompt(None, [], {'task_id': 'test', 'reward': 0.5, 'passed': True, 'exception_info': 'err', 'search_tool_calls': 1}, 'dimensions: []\n'); sig = prompt.split('## Extracted signals')[1]; assert 'reward' not in sig; assert '\"passed\"' not in sig; assert 'exception_info' not in sig; assert 'search_tool_calls' in sig; print('PASS')"`
+  - Expect: exit code 0; build_prompt signature `(instruction, trajectory_steps, signals, taxonomy_yaml)` — the rendered "## Extracted signals" section excludes redacted fields while retaining non-redacted ones
 - **Depends on**: nothing (must complete before all other MHs)
 
 #### MH-1: Fix taxonomy access in llm_annotator (Phase 0 prerequisite)
