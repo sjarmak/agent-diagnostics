@@ -14,7 +14,7 @@ import pytest
 import asyncio
 
 from agent_diagnostics import llm_annotator
-from agent_diagnostics.annotation_cache import DEFAULT_CACHE_DIR, cache_key, put_cached
+from agent_diagnostics.annotation_cache import cache_key
 from agent_diagnostics.llm_annotator import (
     _load_json,
     _read_text,
@@ -1005,14 +1005,12 @@ class TestCacheHitPaths:
 
     def test_model_id_difference_yields_different_cache_key(self) -> None:
         """Different model IDs must produce different cache keys for the same prompt."""
-        from agent_diagnostics.annotation_cache import cache_key
 
         key_haiku = cache_key("same prompt", "haiku")
         key_sonnet = cache_key("same prompt", "sonnet")
         assert key_haiku != key_sonnet
 
     def test_same_prompt_same_model_same_key(self) -> None:
-        from agent_diagnostics.annotation_cache import cache_key
 
         k1 = cache_key("prompt text", "haiku")
         k2 = cache_key("prompt text", "haiku")

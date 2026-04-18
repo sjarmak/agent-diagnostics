@@ -982,8 +982,6 @@ class TestCheckerRequiresTrajectoryMetadata:
 
     def test_all_checker_categories_covered(self) -> None:
         """Every category in _ALL_CHECKERS should have an entry."""
-        from agent_diagnostics.annotator import _ALL_CHECKERS, _assignment
-        from agent_diagnostics.tool_registry import DEFAULT_REGISTRY
 
         # Extract category names from checkers by examining the function names
         # Each _check_X function produces category name derived from its name

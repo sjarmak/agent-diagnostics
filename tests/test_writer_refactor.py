@@ -15,9 +15,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from agent_diagnostics.annotation_store import PK_FIELDS, AnnotationStore
 
@@ -554,7 +553,6 @@ class TestZeroDuplicatePKs:
     ):
         from agent_diagnostics.cli import (
             cmd_annotate,
-            cmd_ensemble,
             cmd_llm_annotate,
             cmd_predict,
         )
@@ -691,13 +689,6 @@ class TestAnnotationsOutArgParsing:
     predict, and ensemble subcommands."""
 
     def test_annotate_has_annotations_out(self):
-        from agent_diagnostics.cli import main
-
-        import agent_diagnostics.cli as cli_mod
-
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers(dest="command")
-        # Re-run main's parser setup logic by inspecting help
         import subprocess
         import sys
 

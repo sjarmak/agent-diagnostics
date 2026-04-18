@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from agent_diagnostics.annotator import annotate_trial as heuristic_annotate
-from agent_diagnostics.classifier import load_model, predict_trial, signals_to_features
+from agent_diagnostics.classifier import predict_trial
 from agent_diagnostics.taxonomy import load_taxonomy
 
 # Categories where heuristic rules are deterministic and reliable.

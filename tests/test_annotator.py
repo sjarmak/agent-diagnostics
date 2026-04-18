@@ -737,7 +737,7 @@ class TestToolUnderutilization:
         assert "tool_underutilization" not in _names(results)
 
 
-class TestRewardHacking:
+class TestRewardHackingHeuristic:
     """AC: reward_hacking when test files dominate the edited files list."""
 
     def test_reward_hacking_many_test_edits(self) -> None:

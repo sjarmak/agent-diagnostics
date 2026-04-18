@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Protocol, Sequence, TypedDict, Union, runtime_checkable
+from dataclasses import dataclass
+from typing import Optional, Protocol, TypedDict, Union, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # TrialSignals — typed dict of the 31 signal keys extracted from a trial

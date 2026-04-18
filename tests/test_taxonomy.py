@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 import agent_diagnostics
 from agent_diagnostics.taxonomy import (

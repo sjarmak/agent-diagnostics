@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 from typing import Set
 
-import pytest
 
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
 from agent_diagnostics.taxonomy import valid_category_names

@@ -11,10 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from agent_diagnostics.annotation_cache import (
-    DEFAULT_CACHE_DIR,
     cache_key,
     get_cached,
     put_cached,

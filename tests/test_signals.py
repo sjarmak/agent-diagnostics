@@ -19,10 +19,8 @@ from agent_diagnostics.signals import (
 )
 from agent_diagnostics.tool_registry import (
     DEFAULT_REGISTRY,
-    OPENHANDS_REGISTRY,
     ToolRegistry,
 )
-from agent_diagnostics.types import TrialSignals
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic trial directory builders
@@ -1302,7 +1300,7 @@ class TestWriteJsonl:
     """Tests for write_jsonl."""
 
     def test_writes_one_object_per_line(self, tmp_path: Path) -> None:
-        from agent_diagnostics.signals import load_jsonl, write_jsonl
+        from agent_diagnostics.signals import write_jsonl
 
         data = [{"a": 1}, {"b": 2}, {"c": 3}]
         out = tmp_path / "out.jsonl"

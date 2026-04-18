@@ -243,7 +243,7 @@ def cmd_llm_annotate(args):
     import random
     from datetime import datetime, timezone
 
-    from agent_diagnostics.llm_annotator import annotate_batch, annotate_trial_llm
+    from agent_diagnostics.llm_annotator import annotate_batch
     from agent_diagnostics.taxonomy import load_taxonomy
 
     signals_path = Path(args.signals)

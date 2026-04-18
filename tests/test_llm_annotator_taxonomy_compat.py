@@ -10,14 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-import yaml
 
 from agent_diagnostics.llm_annotator import validate_categories
 from agent_diagnostics.taxonomy import (
-    _extract_categories,
-    _is_v2,
-    _is_v3,
-    load_taxonomy,
     valid_category_names,
 )
 

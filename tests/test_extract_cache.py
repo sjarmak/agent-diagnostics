@@ -6,7 +6,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
 
 from agent_diagnostics.extract_cache import SignalsCache, compute_content_hash
 from agent_diagnostics.signals import extract_all

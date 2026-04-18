@@ -12,7 +12,6 @@ import pytest
 from agent_diagnostics.pipeline import (
     PipelineError,
     Stage,
-    StageResult,
     format_summary,
     is_stale,
     load_pipeline,

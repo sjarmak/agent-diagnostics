@@ -6,7 +6,6 @@ ensuring every alias resolves consistently in both backends.
 
 from __future__ import annotations
 
-import pytest
 
 from agent_diagnostics.llm_annotator import _API_MODEL_MAP, _MODEL_ALIASES
 

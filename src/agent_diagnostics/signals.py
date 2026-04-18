@@ -319,7 +319,6 @@ def _resolve_model(
 
     # Tertiary: match directory name segments against model_keywords
     if model_keywords:
-        dir_name = trial_dir.name.lower()
         # Also check parent names
         for part in (trial_dir.name, *[p for p in trial_dir.parts[-4:]]):
             for keyword, model_name in model_keywords.items():
