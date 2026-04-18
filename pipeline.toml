@@ -1,0 +1,27 @@
+# Pipeline DAG for the Agent Reliability Observatory (PRD NH-2).
+#
+# Run via:
+#   python3 -m agent_diagnostics pipeline run
+#
+# Each stage declares inputs, outputs, and a shell command. `pipeline run`
+# compares mtimes and only executes stages whose outputs are stale (missing,
+# or older than any input). Stages execute in declaration order; a failure
+# aborts downstream stages.
+
+[[stage]]
+name = "extract"
+inputs = ["runs/"]
+outputs = ["data/signals.jsonl"]
+command = "python3 -m agent_diagnostics extract --runs-dir runs --output data/signals.jsonl --cache-dir data/.extract-cache"
+
+[[stage]]
+name = "annotate"
+inputs = ["data/signals.jsonl"]
+outputs = ["data/annotations.json"]
+command = "python3 -m agent_diagnostics annotate --signals data/signals.jsonl --output data/annotations.json"
+
+[[stage]]
+name = "report"
+inputs = ["data/annotations.json"]
+outputs = ["data/report/reliability_report.md", "data/report/reliability_report.json"]
+command = "python3 -m agent_diagnostics report --annotations data/annotations.json --output data/report"

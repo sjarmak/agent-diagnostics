@@ -737,6 +737,7 @@ def extract_all(
     benchmark_resolver: Callable[[Path], str | None] | None = None,
     task_id_normalizer: Callable[[str], str] | None = None,
     model_keywords: dict[str, str] | None = None,
+    cache: Any = None,
 ) -> list[TrialSignals]:
     """Walk a directory tree and extract signals from every trial.
 
@@ -748,6 +749,14 @@ def extract_all(
         Root directory to walk.
     tool_registry, suite_mapping, benchmark_resolver, task_id_normalizer, model_keywords:
         Forwarded to :func:`extract_signals`.
+    cache:
+        Optional :class:`~agent_diagnostics.extract_cache.SignalsCache`.  When
+        supplied, result.json + trajectory.json bytes are hashed per trial; a
+        cache hit short-circuits the full parse-and-derive step.  A cache miss
+        runs extraction normally and stores the result for the next run.
+        Callers MUST invalidate or rebuild the cache if resolver arguments
+        (``suite_mapping``, ``benchmark_resolver``, etc.) change — the cache
+        key is content-only, not config-aware.
 
     Returns
     -------
@@ -767,6 +776,11 @@ def extract_all(
         if data is None or not _is_valid_trial(data):
             continue
 
+        cached = _try_cache_hit(trial_dir, cache) if cache is not None else None
+        if cached is not None:
+            results.append(cached)
+            continue
+
         signals = extract_signals(
             trial_dir,
             tool_registry=tool_registry,
@@ -776,7 +790,47 @@ def extract_all(
             model_keywords=model_keywords,
         )
         results.append(signals)
+
+        if cache is not None:
+            _store_cache_entry(trial_dir, signals, cache)
+
     return results
+
+
+def _try_cache_hit(trial_dir: Path, cache: Any) -> TrialSignals | None:
+    """Return cached signals for *trial_dir* if the content hash matches."""
+    try:
+        content_hash = _compute_trial_content_hash(trial_dir)
+    except OSError:
+        return None
+    cached = cache.get(content_hash)
+    if cached is None:
+        return None
+    return cached  # type: ignore[return-value]
+
+
+def _store_cache_entry(trial_dir: Path, signals: TrialSignals, cache: Any) -> None:
+    """Record *signals* in *cache* keyed by the trial's content hash."""
+    try:
+        content_hash = _compute_trial_content_hash(trial_dir)
+    except OSError:
+        return
+    cache.put(content_hash, dict(signals))
+
+
+def _compute_trial_content_hash(trial_dir: Path) -> str:
+    """Hash result.json + trajectory.json bytes for cache keying."""
+    from agent_diagnostics.extract_cache import compute_content_hash
+
+    result_bytes = (trial_dir / "result.json").read_bytes()
+    traj_path = trial_dir / "trajectory.json"
+    traj_path_nested = trial_dir / "agent" / "trajectory.json"
+    traj_bytes: bytes | None = None
+    if traj_path.is_file():
+        traj_bytes = traj_path.read_bytes()
+    elif traj_path_nested.is_file():
+        traj_bytes = traj_path_nested.read_bytes()
+    return compute_content_hash(result_bytes, traj_bytes)
 
 
 # ---------------------------------------------------------------------------

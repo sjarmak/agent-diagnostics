@@ -358,6 +358,7 @@ class TestCmdExtract:
         args = argparse.Namespace(
             runs_dir=str(tmp_path / "nonexistent"),
             output=str(tmp_path / "out.json"),
+            cache_dir=None,
         )
         with pytest.raises(SystemExit):
             cmd_extract(args)
@@ -371,10 +372,12 @@ class TestCmdExtract:
         mock_extract.return_value = [{"trial_id": "t1"}, {"trial_id": "t2"}]
 
         output = tmp_path / "signals.json"
-        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output))
+        args = argparse.Namespace(
+            runs_dir=str(runs_dir), output=str(output), cache_dir=None
+        )
         cmd_extract(args)
 
-        mock_extract.assert_called_once_with(runs_dir)
+        mock_extract.assert_called_once_with(runs_dir, cache=None)
         assert output.exists()
         data = json.loads(output.read_text())
         assert len(data) == 2

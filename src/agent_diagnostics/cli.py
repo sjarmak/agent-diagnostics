@@ -110,12 +110,26 @@ def cmd_extract(args):
         print(f"Error: runs directory not found: {runs_dir}", file=sys.stderr)
         sys.exit(1)
 
-    signals = extract_all(runs_dir)
+    cache = None
+    cache_dir = getattr(args, "cache_dir", None)
+    if cache_dir:
+        from agent_diagnostics.extract_cache import SignalsCache
+
+        cache = SignalsCache(Path(cache_dir))
+
+    signals = extract_all(runs_dir, cache=cache)
 
     output = Path(args.output)
     write_output(signals, output)
 
-    print(f"Extracted signals from {len(signals)} trials", file=sys.stderr)
+    suffix = ""
+    if cache is not None:
+        stats = cache.stats
+        suffix = (
+            f" (cache: {stats['hits']} hits, {stats['misses']} misses, "
+            f"{stats['entries']} entries)"
+        )
+    print(f"Extracted signals from {len(signals)} trials{suffix}", file=sys.stderr)
 
 
 def cmd_annotate(args):
@@ -615,6 +629,32 @@ def cmd_manifest_refresh(args):
     print(f"Manifests refreshed: {output_path}", file=sys.stderr)
 
 
+def cmd_pipeline_run(args):
+    """Run stale stages declared in pipeline.toml."""
+    from agent_diagnostics.pipeline import (
+        PipelineError,
+        format_summary,
+        run_pipeline,
+    )
+
+    config_path = Path(args.config)
+    if not config_path.is_file():
+        print(f"Error: pipeline config not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+
+    project_root = Path(args.project_root) if args.project_root else config_path.parent
+    try:
+        results = run_pipeline(config_path, project_root)
+    except PipelineError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(format_summary(results))
+
+    if any(r.status == "failed" for r in results):
+        sys.exit(1)
+
+
 def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
@@ -686,6 +726,12 @@ def main():
         "--runs-dir", required=True, help="Path to runs/_raw directory"
     )
     p_extract.add_argument("--output", required=True, help="Output signals JSON file")
+    p_extract.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Optional directory for the content-hash extraction cache "
+        "(e.g. 'data/.extract-cache'). Warm re-extractions skip unchanged trials.",
+    )
     p_extract.set_defaults(func=cmd_extract)
 
     # annotate
@@ -884,6 +930,26 @@ def main():
         help="Root data directory (default: data/)",
     )
     p_export.set_defaults(func=cmd_export)
+
+    # pipeline
+    p_pipeline = subparsers.add_parser("pipeline", help="Pipeline management commands")
+    pipeline_sub = p_pipeline.add_subparsers(
+        dest="pipeline_command", help="Pipeline subcommands"
+    )
+    p_pipeline_run = pipeline_sub.add_parser(
+        "run", help="Run stale stages declared in pipeline.toml"
+    )
+    p_pipeline_run.add_argument(
+        "--config",
+        default="pipeline.toml",
+        help="Path to pipeline config (default: pipeline.toml at project root)",
+    )
+    p_pipeline_run.add_argument(
+        "--project-root",
+        default=None,
+        help="Project root for resolving relative input/output paths (default: dir of --config)",
+    )
+    p_pipeline_run.set_defaults(func=cmd_pipeline_run)
 
     # manifest
     p_manifest = subparsers.add_parser("manifest", help="Manifest management commands")
