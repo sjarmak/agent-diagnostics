@@ -15,6 +15,189 @@ from typing import Any
 
 from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
 
+LOW_CONFIDENCE_N = 3
+"""Matrix cells with fewer than this many trials are flagged as low-confidence."""
+
+
+def _md_cell(value: object) -> str:
+    """Escape a value for safe embedding in a GFM table cell.
+
+    Replaces pipe and newline characters that would otherwise break
+    column alignment or smuggle new rows/sections into the output.
+    """
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\n", " ").replace("\r", "")
+
+
+def _build_trials_frame(annotations: list[dict]) -> list[dict]:
+    """Normalize annotation dicts into a flat frame for comparative analysis.
+
+    Applies the `"unknown"` bucket for missing `agent_name` / `benchmark`
+    exactly once so downstream helpers stay consistent. Does not mutate input.
+    """
+    return [
+        {
+            "agent": a.get("agent_name") or "unknown",
+            "model": a.get("model") or None,
+            "benchmark": a.get("benchmark") or "unknown",
+            "config_name": a.get("config_name"),
+            "passed": bool(a.get("passed")),
+            "reward": a.get("reward"),
+            "categories": a.get("categories", []),
+        }
+        for a in annotations
+    ]
+
+
+def _top_failure_categories(trials: list[dict], limit: int = 3) -> list[dict]:
+    """Top failure categories from FAILED trials in the given slice.
+
+    Categories missing a ``name`` field are skipped rather than raising
+    so a single malformed annotation cannot abort report generation.
+    """
+    counts: Counter[str] = Counter()
+    for t in trials:
+        if t["passed"]:
+            continue
+        for cat in t.get("categories", []):
+            name = cat.get("name")
+            if name:
+                counts[name] += 1
+    return [{"name": name, "count": count} for name, count in counts.most_common(limit)]
+
+
+def _aggregate_slice(trials: list[dict]) -> dict:
+    """Shared aggregation used by per-benchmark and per-agent summaries.
+
+    ``mean_reward`` is ``None`` when no trial in the slice carries a reward,
+    so consumers can distinguish "no data" from "all zeros".
+    """
+    n = len(trials)
+    passed = sum(1 for t in trials if t["passed"])
+    rewards = [t["reward"] for t in trials if t["reward"] is not None]
+    mean_reward = round(sum(rewards) / len(rewards), 4) if rewards else None
+    return {
+        "n_trials": n,
+        "passed": passed,
+        "pass_rate": round(passed / n, 4) if n else 0.0,
+        "mean_reward": mean_reward,
+        "top_failures": _top_failure_categories(trials),
+    }
+
+
+def _per_benchmark_summary(frame: list[dict]) -> list[dict]:
+    """Per-benchmark aggregates, sorted desc by n_trials."""
+    by_bench: dict[str, list[dict]] = defaultdict(list)
+    for row in frame:
+        by_bench[row["benchmark"]].append(row)
+
+    out = [
+        {"benchmark": bench, **_aggregate_slice(trials)}
+        for bench, trials in by_bench.items()
+    ]
+    out.sort(key=lambda r: (-r["n_trials"], r["benchmark"]))
+    return out
+
+
+def _per_agent_summary(frame: list[dict]) -> list[dict]:
+    """Per-(agent, model) aggregates, sorted desc by n_trials.
+
+    Labels use `"agent / model"` only when the agent has more than one model
+    in the dataset; otherwise the bare agent name. Scoping is per-agent so
+    the label rule is local, not global.
+    """
+    by_key: dict[tuple[str, str | None], list[dict]] = defaultdict(list)
+    for row in frame:
+        by_key[(row["agent"], row["model"])].append(row)
+
+    models_per_agent: dict[str, set[str | None]] = defaultdict(set)
+    for agent, model in by_key:
+        models_per_agent[agent].add(model)
+
+    out: list[dict] = []
+    for (agent, model), trials in by_key.items():
+        multi_model = len(models_per_agent[agent]) > 1
+        model_display = model if model is not None else "(no model)"
+        label = f"{agent} / {model_display}" if multi_model else agent
+        out.append(
+            {
+                "agent": agent,
+                "model": model,
+                "label": label,
+                **_aggregate_slice(trials),
+            }
+        )
+    out.sort(key=lambda r: (-r["n_trials"], r["label"]))
+    return out
+
+
+def _agent_benchmark_matrix(frame: list[dict]) -> dict[str, dict[str, dict]]:
+    """Agent x benchmark cross-tab marginalized across configs.
+
+    Returns `{agent: {benchmark: {pass_rate, n_trials, low_confidence}}}`.
+    Cells below `LOW_CONFIDENCE_N` trials are flagged but NOT hidden.
+    """
+    cells: dict[tuple[str, str], list[bool]] = defaultdict(list)
+    for row in frame:
+        cells[(row["agent"], row["benchmark"])].append(row["passed"])
+
+    matrix: dict[str, dict[str, dict]] = defaultdict(dict)
+    for (agent, bench), passes in cells.items():
+        n = len(passes)
+        pass_rate = sum(passes) / n if n else 0.0
+        matrix[agent][bench] = {
+            "pass_rate": round(pass_rate, 4),
+            "n_trials": n,
+            "low_confidence": n < LOW_CONFIDENCE_N,
+        }
+    return {k: dict(v) for k, v in matrix.items()}
+
+
+def _top_divergences(matrix: dict[str, dict[str, dict]], top_k: int = 10) -> list[dict]:
+    """Per-benchmark largest pairwise pass-rate delta across agents.
+
+    Benchmarks with fewer than 2 agents are skipped. Ties broken by
+    benchmark name ascending. Each row carries the full per-agent list
+    so consumers can re-sort beyond the primary metric.
+    """
+    benchmarks: set[str] = set()
+    for agent_cells in matrix.values():
+        benchmarks.update(agent_cells.keys())
+
+    rows: list[dict] = []
+    for bench in benchmarks:
+        agents_here = [
+            (agent, cells[bench]) for agent, cells in matrix.items() if bench in cells
+        ]
+        if len(agents_here) < 2:
+            continue
+        # Sort desc by pass_rate, tiebreaker by agent name ascending so
+        # pair_a / pair_b are stable across runs with different input orderings.
+        agents_here.sort(key=lambda ac: (-ac[1]["pass_rate"], ac[0]))
+        high_agent, high_cell = agents_here[0]
+        low_agent, low_cell = agents_here[-1]
+        rows.append(
+            {
+                "benchmark": bench,
+                "max_delta": round(high_cell["pass_rate"] - low_cell["pass_rate"], 4),
+                "pair_a": high_agent,
+                "pair_b": low_agent,
+                "pair_a_rate": high_cell["pass_rate"],
+                "pair_b_rate": low_cell["pass_rate"],
+                "all_agents": [
+                    {
+                        "agent": agent,
+                        "pass_rate": cell["pass_rate"],
+                        "n_trials": cell["n_trials"],
+                        "low_confidence": cell["low_confidence"],
+                    }
+                    for agent, cell in agents_here
+                ],
+            }
+        )
+    rows.sort(key=lambda r: (-r["max_delta"], r["benchmark"]))
+    return rows[:top_k]
+
 
 def _load_taxonomy_polarity() -> dict[str, str]:
     """Return a mapping of category name -> polarity from the taxonomy."""
@@ -67,10 +250,12 @@ def _count_trajectory_available(annotations: list[dict]) -> int:
 
 def _category_counts(annotations: list[dict]) -> dict[str, int]:
     """Count how many trials are assigned each category."""
-    counts: Counter = Counter()
+    counts: Counter[str] = Counter()
     for a in annotations:
         for cat in a.get("categories", []):
-            counts[cat["name"]] += 1
+            name = cat.get("name")
+            if name:
+                counts[name] += 1
     return dict(counts.most_common())
 
 
@@ -88,10 +273,12 @@ def _category_counts_with_denominators(
     total = len(annotations)
     traj_available = _count_trajectory_available(annotations)
 
-    counts: Counter = Counter()
+    counts: Counter[str] = Counter()
     for a in annotations:
         for cat in a.get("categories", []):
-            counts[cat["name"]] += 1
+            name = cat.get("name")
+            if name:
+                counts[name] += 1
 
     result: dict[str, dict[str, Any]] = {}
     for name, count in counts.most_common():
@@ -108,7 +295,9 @@ def _category_by_config(annotations: list[dict]) -> dict[str, dict[str, int]]:
     for a in annotations:
         cfg = a.get("config_name") or "unknown"
         for cat in a.get("categories", []):
-            result[cfg][cat["name"]] += 1
+            name = cat.get("name")
+            if name:
+                result[cfg][name] += 1
     # Convert counters to plain dicts, sorted
     return {
         k: dict(sorted(v.items(), key=lambda x: -x[1]))
@@ -122,7 +311,9 @@ def _category_by_suite(annotations: list[dict]) -> dict[str, dict[str, int]]:
     for a in annotations:
         suite = a.get("benchmark") or "unknown"
         for cat in a.get("categories", []):
-            result[suite][cat["name"]] += 1
+            name = cat.get("name")
+            if name:
+                result[suite][name] += 1
     # Convert counters to plain dicts, sorted by total count desc
     return {
         k: dict(sorted(v.items(), key=lambda x: -x[1]))
@@ -165,7 +356,9 @@ def _paired_comparison(annotations: list[dict]) -> list[dict]:
             continue
         core = _core_task_name(path)
         for cat in a.get("categories", []):
-            task_config_cats[(core, cfg)].add(cat["name"])
+            name = cat.get("name")
+            if name:
+                task_config_cats[(core, cfg)].add(name)
 
     # Build per-task -> configs that ran it
     task_configs: dict[str, set[str]] = defaultdict(set)
@@ -239,13 +432,13 @@ def _top_categories_with_examples(
 ) -> list[dict]:
     """Get top N categories of given polarity with example trials."""
     # Count by polarity
-    counts: Counter = Counter()
+    counts: Counter[str] = Counter()
     cat_trials: dict[str, list[dict]] = defaultdict(list)
 
     for a in annotations:
         for cat in a.get("categories", []):
-            name = cat["name"]
-            if polarity_map.get(name) == polarity:
+            name = cat.get("name")
+            if name and polarity_map.get(name) == polarity:
                 counts[name] += 1
                 cat_trials[name].append(
                     {
@@ -288,7 +481,7 @@ def co_occurrence_matrix(annotations: list[dict]) -> dict[str, dict[str, float]]
     trial_cats: list[set[str]] = []
     all_cats: set[str] = set()
     for a in annotations:
-        cats = {cat["name"] for cat in a.get("categories", [])}
+        cats = {name for cat in a.get("categories", []) if (name := cat.get("name"))}
         trial_cats.append(cats)
         all_cats.update(cats)
 
@@ -371,7 +564,10 @@ def dimension_aggregation(
     for a in annotations:
         dims_seen: set[str] = set()
         for cat in a.get("categories", []):
-            dim = cat_to_dim.get(cat["name"])
+            name = cat.get("name")
+            if not name:
+                continue
+            dim = cat_to_dim.get(name)
             if dim and dim not in dims_seen:
                 dims_seen.add(dim)
                 dim_trials[dim].append(a)
@@ -386,6 +582,130 @@ def dimension_aggregation(
     return result
 
 
+def _render_summary_table(
+    lines: list[str],
+    title: str,
+    key_header: str,
+    rows: list[dict],
+    key_field: str,
+    empty_msg: str,
+) -> None:
+    """Render a per-<key> summary table (benchmark or agent)."""
+    lines.append(f"## {title}")
+    lines.append("")
+    if rows:
+        lines.append(
+            f"| {key_header} | Trials | Passed | Pass Rate | Mean Reward | Top Failures |"
+        )
+        lines.append(
+            "|"
+            + "-" * (len(key_header) + 2)
+            + "|--------|--------|-----------|-------------|--------------|"
+        )
+        for row in rows:
+            top = (
+                ", ".join(
+                    f"{_md_cell(f['name'])} ({f['count']})" for f in row["top_failures"]
+                )
+                or "—"
+            )
+            mean_reward = row.get("mean_reward")
+            mean_reward_str = f"{mean_reward:.4f}" if mean_reward is not None else "—"
+            lines.append(
+                f"| {_md_cell(row[key_field])} | {row['n_trials']:,} | "
+                f"{row['passed']:,} | {row['pass_rate']:.1%} | {mean_reward_str} | "
+                f"{top} |"
+            )
+    else:
+        lines.append(empty_msg)
+    lines.append("")
+
+
+def _render_comparative_sections(
+    lines: list[str],
+    per_benchmark: list[dict],
+    per_agent: list[dict],
+    matrix: dict[str, dict[str, dict]],
+    divergences: list[dict],
+) -> None:
+    """Render the four comparative-analysis sections into `lines`."""
+    _render_summary_table(
+        lines,
+        "Per-Benchmark Summary",
+        "Benchmark",
+        per_benchmark,
+        "benchmark",
+        "No annotations to summarize by benchmark.",
+    )
+    _render_summary_table(
+        lines,
+        "Per-Agent Summary",
+        "Agent",
+        per_agent,
+        "label",
+        "No annotations to summarize by agent.",
+    )
+
+    # Agent x Benchmark Matrix
+    lines.append("## Agent x Benchmark Matrix")
+    lines.append("")
+    has_low_confidence = False
+    if matrix:
+        agents = sorted(matrix.keys())
+        benchmarks_set: set[str] = set()
+        for cells in matrix.values():
+            benchmarks_set.update(cells.keys())
+        benchmarks = sorted(benchmarks_set)
+        lines.append(
+            f"Values are pass rates; `†` marks cells with n < {LOW_CONFIDENCE_N} trials."
+        )
+        lines.append("")
+        lines.append("| Agent | " + " | ".join(_md_cell(b) for b in benchmarks) + " |")
+        lines.append("|-------|" + "|".join(["-------"] * len(benchmarks)) + "|")
+        for agent in agents:
+            cells = matrix[agent]
+            row_cells: list[str] = []
+            for bench in benchmarks:
+                cell = cells.get(bench)
+                if cell is None:
+                    row_cells.append("—")
+                else:
+                    low = cell.get("low_confidence")
+                    has_low_confidence = has_low_confidence or bool(low)
+                    marker = "†" if low else ""
+                    row_cells.append(f"{cell['pass_rate']:.1%}{marker}")
+            lines.append(f"| {_md_cell(agent)} | " + " | ".join(row_cells) + " |")
+    else:
+        lines.append("No agent-by-benchmark data available.")
+    lines.append("")
+
+    if has_low_confidence:
+        lines.append(f"`†` n < {LOW_CONFIDENCE_N} trials — treat as low-confidence.")
+        lines.append("")
+
+    # Top Divergences
+    lines.append("## Top Divergences")
+    lines.append("")
+    if divergences:
+        lines.append("Largest pairwise pass-rate delta per benchmark across agents.")
+        lines.append("")
+        lines.append(
+            "| Benchmark | Delta | Higher | Lower | Higher Rate | Lower Rate |"
+        )
+        lines.append(
+            "|-----------|-------|--------|-------|-------------|------------|"
+        )
+        for row in divergences:
+            lines.append(
+                f"| {_md_cell(row['benchmark'])} | {row['max_delta']:.1%} | "
+                f"{_md_cell(row['pair_a'])} | {_md_cell(row['pair_b'])} | "
+                f"{row['pair_a_rate']:.1%} | {row['pair_b_rate']:.1%} |"
+            )
+    else:
+        lines.append("No benchmarks with multiple agents to compare.")
+    lines.append("")
+
+
 def _render_markdown(
     stats: dict,
     cat_counts: dict[str, int],
@@ -398,6 +718,10 @@ def _render_markdown(
     paired_comparisons: list[dict] | None = None,
     cat_counts_with_denominators: dict[str, dict[str, Any]] | None = None,
     dimension_summary: dict[str, dict[str, Any]] | None = None,
+    per_benchmark_summary: list[dict] | None = None,
+    per_agent_summary: list[dict] | None = None,
+    agent_benchmark_matrix: dict[str, dict[str, dict]] | None = None,
+    top_divergences: list[dict] | None = None,
 ) -> str:
     """Render the Markdown reliability report."""
     lines: list[str] = []
@@ -411,8 +735,8 @@ def _render_markdown(
     # Corpus Stats
     lines.append("## Corpus Statistics")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Total annotated trials | {stats['total_trials']:,} |")
     lines.append(f"| Passed | {stats['passed']:,} |")
     lines.append(f"| Failed | {stats['failed']:,} |")
@@ -421,6 +745,15 @@ def _render_markdown(
     lines.append(f"| Configs | {len(stats['configs'])} |")
     lines.append(f"| Benchmarks | {len(stats['benchmarks'])} |")
     lines.append("")
+
+    # Comparative analysis sections (headline slices — near the top)
+    _render_comparative_sections(
+        lines,
+        per_benchmark_summary or [],
+        per_agent_summary or [],
+        agent_benchmark_matrix or {},
+        top_divergences or [],
+    )
 
     # Category Frequency — split by denominator type
     denom_data = cat_counts_with_denominators or {}
@@ -615,6 +948,12 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
     top_successes = _top_categories_with_examples(ann_list, polarity_map, "success")
     paired_comparisons = _paired_comparison(ann_list)
 
+    frame = _build_trials_frame(ann_list)
+    per_benchmark = _per_benchmark_summary(frame)
+    per_agent = _per_agent_summary(frame)
+    matrix = _agent_benchmark_matrix(frame)
+    divergences = _top_divergences(matrix)
+
     # Co-occurrence and dimension aggregation
     cooccurrence = co_occurrence_matrix(ann_list)
     try:
@@ -641,6 +980,10 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         paired_comparisons=paired_comparisons,
         cat_counts_with_denominators=cat_counts_denom,
         dimension_summary=dim_summary,
+        per_benchmark_summary=per_benchmark,
+        per_agent_summary=per_agent,
+        agent_benchmark_matrix=matrix,
+        top_divergences=divergences,
     )
     md_path = output_dir / "reliability_report.md"
     md_path.write_text(md_content)
@@ -655,6 +998,10 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         "paired_comparisons": paired_comparisons,
         "co_occurrence": cooccurrence,
         "dimension_summary": dim_summary,
+        "per_benchmark_summary": per_benchmark,
+        "per_agent_summary": per_agent,
+        "agent_benchmark_matrix": matrix,
+        "top_divergences": divergences,
     }
     json_path = output_dir / "reliability_report.json"
     with open(json_path, "w") as f:
