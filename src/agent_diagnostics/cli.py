@@ -178,6 +178,8 @@ def cmd_annotate(args):
             "benchmark",
             "benchmark_source",
             "has_trajectory",
+            "trajectory_length",
+            "total_turns",
         ):
             value = sig.get(key)
             if value is not None and value != "":

@@ -44,6 +44,12 @@ def _build_trials_frame(annotations: list[dict]) -> list[dict]:
             "passed": bool(a.get("passed")),
             "reward": a.get("reward"),
             "categories": a.get("categories", []),
+            # Trajectory-volume metrics. ``None`` means "not measured"
+            # (no trajectory file); ``0`` is a legitimate value
+            # (crashed before first turn). Aggregators must exclude
+            # ``None`` from the mean but include ``0``.
+            "trajectory_length": a.get("trajectory_length"),
+            "total_turns": a.get("total_turns"),
         }
         for a in annotations
     ]
@@ -69,18 +75,39 @@ def _top_failure_categories(trials: list[dict], limit: int = 3) -> list[dict]:
 def _aggregate_slice(trials: list[dict]) -> dict:
     """Shared aggregation used by per-benchmark and per-agent summaries.
 
-    ``mean_reward`` is ``None`` when no trial in the slice carries a reward,
-    so consumers can distinguish "no data" from "all zeros".
+    ``mean_reward`` / ``mean_trajectory_length`` / ``mean_total_turns`` are
+    ``None`` when no trial in the slice carries the corresponding value, so
+    consumers can distinguish "no data" from "all zeros". For trajectory
+    volume, ``None`` means "not measured" (trial lacked a trajectory file)
+    and is excluded from the denominator; ``0`` is a legitimate value
+    (crashed before first turn) and is included.
+
+    The JSON output carries both ``mean_trajectory_length`` and
+    ``mean_total_turns``; the markdown summary tables render only the
+    former as a "Mean Trajectory Length" column. This asymmetry is
+    intentional progressive disclosure — the machine-readable JSON is
+    richer than the human-readable markdown so dashboards can surface
+    either metric without bloating the primary report.
     """
     n = len(trials)
     passed = sum(1 for t in trials if t["passed"])
     rewards = [t["reward"] for t in trials if t["reward"] is not None]
     mean_reward = round(sum(rewards) / len(rewards), 4) if rewards else None
+    # Trajectory and turn means round to 2 decimals — these are count-like
+    # metrics (tens to hundreds of turns), so sub-centi precision would be
+    # noise. Markdown also renders with ``:.2f`` for the same reason; JSON
+    # carries the same precision for consistency between surfaces.
+    lengths = [t["trajectory_length"] for t in trials if t["trajectory_length"] is not None]
+    mean_trajectory_length = round(sum(lengths) / len(lengths), 2) if lengths else None
+    turns = [t["total_turns"] for t in trials if t["total_turns"] is not None]
+    mean_total_turns = round(sum(turns) / len(turns), 2) if turns else None
     return {
         "n_trials": n,
         "passed": passed,
         "pass_rate": round(passed / n, 4) if n else 0.0,
         "mean_reward": mean_reward,
+        "mean_trajectory_length": mean_trajectory_length,
+        "mean_total_turns": mean_total_turns,
         "top_failures": _top_failure_categories(trials),
     }
 
@@ -594,14 +621,18 @@ def _render_summary_table(
     lines.append(f"## {title}")
     lines.append("")
     if rows:
-        lines.append(
-            f"| {key_header} | Trials | Passed | Pass Rate | Mean Reward | Top Failures |"
+        header = (
+            f"| {key_header} | Trials | Passed | Pass Rate | Mean Reward"
+            f" | Mean Trajectory Length | Top Failures |"
         )
-        lines.append(
+        separator = (
             "|"
             + "-" * (len(key_header) + 2)
-            + "|--------|--------|-----------|-------------|--------------|"
+            + "|--------|--------|-----------|-------------"
+            + "|------------------------|--------------|"
         )
+        lines.append(header)
+        lines.append(separator)
         for row in rows:
             top = (
                 ", ".join(
@@ -611,10 +642,12 @@ def _render_summary_table(
             )
             mean_reward = row.get("mean_reward")
             mean_reward_str = f"{mean_reward:.4f}" if mean_reward is not None else "—"
+            mean_traj = row.get("mean_trajectory_length")
+            mean_traj_str = f"{mean_traj:.2f}" if mean_traj is not None else "—"
             lines.append(
                 f"| {_md_cell(row[key_field])} | {row['n_trials']:,} | "
                 f"{row['passed']:,} | {row['pass_rate']:.1%} | {mean_reward_str} | "
-                f"{top} |"
+                f"{mean_traj_str} | {top} |"
             )
     else:
         lines.append(empty_msg)

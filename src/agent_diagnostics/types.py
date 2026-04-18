@@ -14,7 +14,10 @@ class TrialSignals(TypedDict, total=False):
     """Raw signal values extracted from a single benchmark trial.
 
     All 31 keys are declared; ``total=False`` allows partial construction
-    during incremental extraction.
+    during incremental extraction. Individual fields may be absent when
+    the source data lacks them (e.g., ``trajectory_length`` / ``total_turns``
+    are absent for trials without a trajectory file); the ``Annotation``
+    dataclass downstream represents absence as ``Optional[...] = None``.
     """
 
     trial_id: str
@@ -119,6 +122,8 @@ class Annotation:
     notes: Optional[str] = None
     signals: Optional[TrialSignals] = None
     annotated_at: Optional[str] = None
+    trajectory_length: Optional[int] = None
+    total_turns: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------

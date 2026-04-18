@@ -129,6 +129,16 @@
           "type": "string",
           "description": "Full 64-hex sha256 of the trial identity key (see trial_id)."
         },
+        "trajectory_length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of trajectory steps recorded for this trial (0 is legitimate — crashed before first turn)."
+        },
+        "total_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total conversational turns for this trial."
+        },
         "annotator": {
           "$ref": "#/$defs/annotator",
           "description": "Annotator for this specific annotation (overrides file-level annotator)."

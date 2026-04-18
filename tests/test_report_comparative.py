@@ -37,6 +37,8 @@ def _mk(
     config_name: str = "baseline",
     categories: list[dict] | None = None,
     task_id: str = "t",
+    trajectory_length: int | None = None,
+    total_turns: int | None = None,
 ) -> dict:
     """Build a synthetic annotation dict."""
     ann: dict = {
@@ -52,6 +54,10 @@ def _mk(
         ann["model"] = model
     if benchmark is not None:
         ann["benchmark"] = benchmark
+    if trajectory_length is not None:
+        ann["trajectory_length"] = trajectory_length
+    if total_turns is not None:
+        ann["total_turns"] = total_turns
     return ann
 
 
@@ -116,6 +122,8 @@ def rich_annotations() -> list[dict]:
                     reward=1.0 if is_pass else 0.0,
                     categories=cats,
                     task_id=f"task_{tid:03d}",
+                    trajectory_length=10,
+                    total_turns=3,
                 )
             )
     return out
@@ -599,3 +607,156 @@ class TestGenerateReportIntegration:
         assert content.index("## Per-Benchmark Summary") < content.index(
             "## Trajectory-Dependent Categories"
         )
+
+
+# ---------------------------------------------------------------------------
+# Trajectory-volume metrics (bead agent-diagnostics-fh6)
+# ---------------------------------------------------------------------------
+
+
+class TestTrajectoryVolumeCarry:
+    """trajectory_length / total_turns flow from annotations into the trials frame."""
+
+    def test_frame_carries_trajectory_length_and_total_turns(self) -> None:
+        anns = [_mk(passed=True, reward=1.0, trajectory_length=42, total_turns=7)]
+        frame = _build_trials_frame(anns)
+        row = frame[0]
+        assert row["trajectory_length"] == 42
+        assert row["total_turns"] == 7
+
+    def test_frame_uses_none_when_fields_missing(self) -> None:
+        anns = [_mk(passed=True, reward=1.0)]
+        frame = _build_trials_frame(anns)
+        row = frame[0]
+        assert row["trajectory_length"] is None
+        assert row["total_turns"] is None
+
+    def test_zero_is_preserved_not_coerced_to_none(self) -> None:
+        # 0 is a legitimate trajectory_length (crashed before first turn).
+        anns = [_mk(passed=False, reward=0.0, trajectory_length=0, total_turns=0)]
+        frame = _build_trials_frame(anns)
+        row = frame[0]
+        assert row["trajectory_length"] == 0
+        assert row["total_turns"] == 0
+
+
+class TestAggregateTrajectoryMeans:
+    """_aggregate_slice exposes mean_trajectory_length / mean_total_turns."""
+
+    def test_mean_trajectory_length_and_total_turns(
+        self, rich_annotations: list[dict]
+    ) -> None:
+        frame = _build_trials_frame(rich_annotations)
+        result = _per_benchmark_summary(frame)
+        by_name = {r["benchmark"]: r for r in result}
+        # Every trial has trajectory_length=10 and total_turns=3.
+        assert by_name["swe-bench"]["mean_trajectory_length"] == pytest.approx(10.0)
+        assert by_name["swe-bench"]["mean_total_turns"] == pytest.approx(3.0)
+
+    def test_none_excluded_from_mean_denominator(self) -> None:
+        # Mix of present and missing values: None must NOT be treated as 0.
+        # The third annotation has no trajectory_length AND no total_turns;
+        # both means exclude it from both the numerator and denominator.
+        anns = [
+            _mk(passed=True, reward=1.0, trajectory_length=10, total_turns=2),
+            _mk(passed=True, reward=1.0, trajectory_length=20, total_turns=4),
+            _mk(passed=False, reward=0.0),  # no trajectory / turns
+        ]
+        frame = _build_trials_frame(anns)
+        result = _per_benchmark_summary(frame)
+        row = result[0]
+        # Mean trajectory_length of [10, 20] = 15 (None excluded), not (10+20+0)/3.
+        # Mean total_turns of [2, 4] = 3 (None excluded), not (2+4+0)/3.
+        assert row["mean_trajectory_length"] == pytest.approx(15.0)
+        assert row["mean_total_turns"] == pytest.approx(3.0)
+
+    def test_zero_included_in_mean_denominator(self) -> None:
+        # 0 is real data — must be averaged, not excluded.
+        anns = [
+            _mk(passed=False, reward=0.0, trajectory_length=0, total_turns=0),
+            _mk(passed=True, reward=1.0, trajectory_length=10, total_turns=4),
+        ]
+        frame = _build_trials_frame(anns)
+        row = _per_benchmark_summary(frame)[0]
+        assert row["mean_trajectory_length"] == pytest.approx(5.0)
+        assert row["mean_total_turns"] == pytest.approx(2.0)
+
+    def test_mean_is_none_when_no_data(self) -> None:
+        anns = [_mk(passed=True, reward=1.0), _mk(passed=False, reward=0.0)]
+        frame = _build_trials_frame(anns)
+        row = _per_benchmark_summary(frame)[0]
+        assert row["mean_trajectory_length"] is None
+        assert row["mean_total_turns"] is None
+
+    def test_per_agent_also_aggregates_means(
+        self, rich_annotations: list[dict]
+    ) -> None:
+        frame = _build_trials_frame(rich_annotations)
+        result = _per_agent_summary(frame)
+        for row in result:
+            assert row["mean_trajectory_length"] == pytest.approx(10.0)
+            assert row["mean_total_turns"] == pytest.approx(3.0)
+
+
+class TestTrajectoryRendering:
+    """Markdown renders Mean Trajectory Length column; JSON carries both keys."""
+
+    def test_markdown_per_benchmark_has_trajectory_column(
+        self, tmp_path: Path, rich_annotations: list[dict]
+    ) -> None:
+        md_path, _ = generate_report({"annotations": rich_annotations}, tmp_path)
+        content = md_path.read_text()
+        per_bench_section = content.split("## Per-Benchmark Summary", 1)[1].split(
+            "## Per-Agent Summary", 1
+        )[0]
+        assert "Mean Trajectory Length" in per_bench_section
+
+    def test_markdown_per_agent_has_trajectory_column(
+        self, tmp_path: Path, rich_annotations: list[dict]
+    ) -> None:
+        md_path, _ = generate_report({"annotations": rich_annotations}, tmp_path)
+        content = md_path.read_text()
+        per_agent_section = content.split("## Per-Agent Summary", 1)[1].split(
+            "## Agent x Benchmark Matrix", 1
+        )[0]
+        assert "Mean Trajectory Length" in per_agent_section
+
+    def test_json_carries_mean_trajectory_length_and_mean_total_turns(
+        self, tmp_path: Path, rich_annotations: list[dict]
+    ) -> None:
+        _, json_path = generate_report({"annotations": rich_annotations}, tmp_path)
+        data = json.loads(json_path.read_text())
+        for row in data["per_benchmark_summary"]:
+            assert "mean_trajectory_length" in row
+            assert "mean_total_turns" in row
+        for row in data["per_agent_summary"]:
+            assert "mean_trajectory_length" in row
+            assert "mean_total_turns" in row
+
+    def test_markdown_renders_em_dash_for_none_trajectory(
+        self, tmp_path: Path
+    ) -> None:
+        # Annotations without trajectory_length -> mean is None -> "—".
+        anns = [
+            _mk(passed=True, reward=1.0),
+            _mk(passed=False, reward=0.0),
+        ]
+        md_path, _ = generate_report({"annotations": anns}, tmp_path)
+        content = md_path.read_text()
+        per_bench = content.split("## Per-Benchmark Summary", 1)[1].split(
+            "## Per-Agent Summary", 1
+        )[0]
+        # With no trajectory data, the Mean Trajectory Length cell is "—".
+        # Count "—" cells — at minimum the trajectory column contributes one per row.
+        assert per_bench.count("—") >= 1
+
+    def test_markdown_renders_integer_means_rounded(
+        self, tmp_path: Path, rich_annotations: list[dict]
+    ) -> None:
+        # Means are numeric; rendering should not crash or print 'None'.
+        md_path, _ = generate_report({"annotations": rich_annotations}, tmp_path)
+        content = md_path.read_text()
+        per_bench = content.split("## Per-Benchmark Summary", 1)[1].split(
+            "## Per-Agent Summary", 1
+        )[0]
+        assert "None" not in per_bench

@@ -30,8 +30,10 @@ def _signal(
     benchmark_source: str = "manifest",
     trial_id: str = "0" * 32,
     trial_id_full: str = "0" * 64,
+    trajectory_length: int | None = 42,
+    total_turns: int | None = 7,
 ) -> dict:
-    return {
+    signal: dict = {
         "task_id": task_id,
         "trial_path": f"runs/{task_id}",
         "reward": 1.0,
@@ -45,6 +47,11 @@ def _signal(
         "trial_id": trial_id,
         "trial_id_full": trial_id_full,
     }
+    if trajectory_length is not None:
+        signal["trajectory_length"] = trajectory_length
+    if total_turns is not None:
+        signal["total_turns"] = total_turns
+    return signal
 
 
 @patch("agent_diagnostics.annotator.annotate_trial")
@@ -58,8 +65,21 @@ def test_carries_analytic_fields_into_annotation_records(
     ]
 
     signals = [
-        _signal("t1", benchmark="swebench_lite", agent_name="claude-code"),
-        _signal("t2", benchmark="locobench", agent_name="codex", has_trajectory=False),
+        _signal(
+            "t1",
+            benchmark="swebench_lite",
+            agent_name="claude-code",
+            trajectory_length=180,
+            total_turns=12,
+        ),
+        _signal(
+            "t2",
+            benchmark="locobench",
+            agent_name="codex",
+            has_trajectory=False,
+            trajectory_length=None,
+            total_turns=None,
+        ),
     ]
     signals_file = tmp_path / "signals.jsonl"
     write_jsonl(signals, signals_file)
@@ -83,11 +103,16 @@ def test_carries_analytic_fields_into_annotation_records(
     assert a1["benchmark_source"] == "manifest"
     assert a1["trial_id"] == "0" * 32
     assert a1["trial_id_full"] == "0" * 64
+    assert a1["trajectory_length"] == 180
+    assert a1["total_turns"] == 12
 
     a2 = record_by_task["t2"]
     assert a2["benchmark"] == "locobench"
     assert a2["agent_name"] == "codex"
     assert a2["has_trajectory"] is False
+    # trajectory_length / total_turns absent when signal omits them (no trajectory file).
+    assert "trajectory_length" not in a2
+    assert "total_turns" not in a2
 
 
 @patch("agent_diagnostics.annotator.annotate_trial")
@@ -121,8 +146,36 @@ def test_missing_signal_fields_are_not_emitted(
         "benchmark",
         "benchmark_source",
         "has_trajectory",
+        "trajectory_length",
+        "total_turns",
     ):
         assert absent not in record, f"{absent!r} should be omitted when signal lacks it"
+
+
+@patch("agent_diagnostics.annotator.annotate_trial")
+@patch("agent_diagnostics.taxonomy.load_taxonomy")
+def test_zero_valued_trajectory_length_is_preserved(
+    mock_taxonomy, mock_annotate_trial, tmp_path: Path
+) -> None:
+    """Integer 0 is a legitimate trajectory_length (crashed before first turn).
+
+    The carry guard must distinguish absent (None) from the real value 0.
+    Regression test: ensures the guard does not accidentally drop falsy ints.
+    """
+    mock_taxonomy.return_value = {"version": "3.0"}
+    mock_annotate_trial.return_value = []
+
+    signals = [_signal("zero_turn", trajectory_length=0, total_turns=0)]
+    signals_file = tmp_path / "signals.jsonl"
+    write_jsonl(signals, signals_file)
+
+    output = tmp_path / "annotations.json"
+    args = argparse.Namespace(signals=str(signals_file), output=str(output))
+    cmd_annotate(args)
+
+    record = json.loads(output.read_text())["annotations"][0]
+    assert record["trajectory_length"] == 0
+    assert record["total_turns"] == 0
 
 
 @patch("agent_diagnostics.annotator.annotate_trial")
