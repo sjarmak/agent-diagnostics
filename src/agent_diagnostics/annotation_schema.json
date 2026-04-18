@@ -109,6 +109,26 @@
           "type": "string",
           "description": "Benchmark suite name (e.g. 'swebench_lite', 'locobench')."
         },
+        "benchmark_source": {
+          "type": "string",
+          "description": "How the benchmark field was resolved (e.g. 'manifest', 'inferred')."
+        },
+        "agent_name": {
+          "type": "string",
+          "description": "Name of the agent that produced the trial (e.g. 'claude-code')."
+        },
+        "has_trajectory": {
+          "type": "boolean",
+          "description": "Whether a trajectory file was present for this trial."
+        },
+        "trial_id": {
+          "type": "string",
+          "description": "Stable primary key — first 32 hex chars of sha256(task_id||config_name||started_at||model)."
+        },
+        "trial_id_full": {
+          "type": "string",
+          "description": "Full 64-hex sha256 of the trial identity key (see trial_id)."
+        },
         "annotator": {
           "$ref": "#/$defs/annotator",
           "description": "Annotator for this specific annotation (overrides file-level annotator)."

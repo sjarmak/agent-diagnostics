@@ -138,22 +138,37 @@ def cmd_annotate(args):
     annotation_list = []
     for sig in signals_list:
         assignments = annotate_trial(sig)
-        annotation_list.append(
-            {
-                "task_id": sig.get("task_id", ""),
-                "trial_path": sig.get("trial_path", ""),
-                "reward": sig.get("reward"),
-                "passed": sig.get("passed", False),
-                "categories": [
-                    {
-                        "name": a.name,
-                        "confidence": a.confidence,
-                        "evidence": a.evidence or "",
-                    }
-                    for a in assignments
-                ],
-            }
-        )
+        record: dict[str, Any] = {
+            "task_id": sig.get("task_id", ""),
+            "trial_path": sig.get("trial_path", ""),
+            "reward": sig.get("reward"),
+            "passed": sig.get("passed", False),
+            "categories": [
+                {
+                    "name": a.name,
+                    "confidence": a.confidence,
+                    "evidence": a.evidence or "",
+                }
+                for a in assignments
+            ],
+        }
+        # Carry analytic fields from signals through to annotation records so
+        # downstream consumers (report.py) can slice by benchmark / agent /
+        # trajectory availability without re-reading the signals file.
+        for key in (
+            "trial_id",
+            "trial_id_full",
+            "agent_name",
+            "model",
+            "config_name",
+            "benchmark",
+            "benchmark_source",
+            "has_trajectory",
+        ):
+            value = sig.get(key)
+            if value is not None and value != "":
+                record[key] = value
+        annotation_list.append(record)
 
     annotations = {
         "schema_version": "observatory-annotation-v1",

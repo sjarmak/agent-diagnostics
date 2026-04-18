@@ -199,4 +199,4 @@ class TestVersion:
     """Package version is accessible."""
 
     def test_version_string(self) -> None:
-        assert agent_diagnostics.__version__ == "0.5.1"
+        assert agent_diagnostics.__version__ == "0.7.0"
