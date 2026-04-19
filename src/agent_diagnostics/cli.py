@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -247,6 +248,10 @@ def cmd_report(args):
     [...]}`` or bare list) or ``.jsonl`` (one record per line) so the
     output of ``observatory annotate`` is consumable directly regardless
     of the extension the user chose for that stage.
+
+    Output destination is controlled by ``--output-dir`` (canonical) or
+    ``--output`` (deprecated alias, retained for 0.8.x compatibility —
+    slated for removal in 1.0).
     """
     from agent_diagnostics.report import generate_report
 
@@ -279,7 +284,25 @@ def cmd_report(args):
         if isinstance(annotations, list):
             annotations = {"annotations": annotations}
 
-    output_dir = Path(args.output)
+    # Resolve output directory from --output-dir (canonical) or --output
+    # (deprecated). argparse's mutually_exclusive_group guarantees at most
+    # one is set when invoked through main(); direct Namespace callers may
+    # supply either attribute.
+    output_dir_value = getattr(args, "output_dir", None)
+    legacy_output = getattr(args, "output", None)
+    if legacy_output is not None and output_dir_value is None:
+        warnings.warn(
+            "`observatory report --output` is deprecated; use --output-dir "
+            "instead. The --output alias will be removed in 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        output_dir_value = legacy_output
+    if output_dir_value is None:
+        logger.error("--output-dir is required")
+        sys.exit(1)
+
+    output_dir = Path(output_dir_value)
     md_path, json_path = generate_report(annotations, output_dir)
 
     logger.info("Report written to %s and %s", md_path, json_path)
@@ -1054,8 +1077,19 @@ def main():
     p_report.add_argument(
         "--annotations", required=True, help="Input annotations JSON file"
     )
-    p_report.add_argument(
-        "--output", required=True, help="Output directory for report files"
+    # Canonical flag is --output-dir (dir-writing commands use --output-dir;
+    # file-writing commands use --output). --output is kept as a deprecated
+    # alias for 0.8.x compatibility, slated for removal in 1.0.
+    report_out_group = p_report.add_mutually_exclusive_group(required=True)
+    report_out_group.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory for report files",
+    )
+    report_out_group.add_argument(
+        "--output",
+        default=None,
+        help="[deprecated: use --output-dir] Output directory for report files",
     )
     p_report.set_defaults(func=cmd_report)
 

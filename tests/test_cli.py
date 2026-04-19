@@ -446,7 +446,8 @@ class TestCmdReport:
 
         args = argparse.Namespace(
             annotations=str(tmp_path / "missing.json"),
-            output=str(tmp_path / "report"),
+            output_dir=str(tmp_path / "report"),
+            output=None,
         )
         with pytest.raises(SystemExit):
             cmd_report(args)
@@ -461,7 +462,9 @@ class TestCmdReport:
         out_dir = tmp_path / "report"
         mock_report.return_value = (out_dir / "report.md", out_dir / "report.json")
 
-        args = argparse.Namespace(annotations=str(ann_file), output=str(out_dir))
+        args = argparse.Namespace(
+            annotations=str(ann_file), output_dir=str(out_dir), output=None
+        )
         cmd_report(args)
 
         mock_report.assert_called_once()
@@ -1233,7 +1236,11 @@ class TestReportAcceptsJSONL:
 
         report_dir = tmp_path / f"report_{ext}"
         cmd_report(
-            argparse.Namespace(annotations=str(ann_path), output=str(report_dir))
+            argparse.Namespace(
+                annotations=str(ann_path),
+                output_dir=str(report_dir),
+                output=None,
+            )
         )
         return report_dir
 
@@ -1310,3 +1317,126 @@ class TestCalibrateAcceptsJSONL:
             f"expected shared_trials=1 on matching fixture, got "
             f"{cal['shared_trials']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# cmd_report: --output-dir canonical flag, --output deprecated alias (xw7)
+# ---------------------------------------------------------------------------
+
+
+class TestReportOutputFlagNormalisation:
+    """The `report` subcommand's output flag was named `--output` but its
+    semantics are "output directory for report files". The bead agent-
+    diagnostics-xw7 normalises flag naming: dir-writing commands use
+    `--output-dir`; file-writing commands use `--output`. `--output` is
+    retained as a deprecated alias on `report` so 0.8.x users don't break.
+    """
+
+    def _write_minimal_annotations(self, tmp_path):
+        ann_file = tmp_path / "annotations.json"
+        ann_file.write_text(json.dumps({"annotations": []}))
+        return ann_file
+
+    def test_report_accepts_output_dir(self, tmp_path):
+        """`observatory report --output-dir DIR` is the canonical form."""
+        from agent_diagnostics.cli import main
+
+        ann_file = self._write_minimal_annotations(tmp_path)
+        out_dir = tmp_path / "report-canonical"
+
+        argv = [
+            "observatory",
+            "report",
+            "--annotations",
+            str(ann_file),
+            "--output-dir",
+            str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            main()
+
+        # generate_report writes reliability_report.{md,json} into out_dir.
+        assert (out_dir / "reliability_report.md").is_file()
+        assert (out_dir / "reliability_report.json").is_file()
+
+    def test_report_accepts_deprecated_output_alias_with_warning(self, tmp_path):
+        """`--output` still works but emits a DeprecationWarning."""
+        from agent_diagnostics.cli import main
+
+        ann_file = self._write_minimal_annotations(tmp_path)
+        out_dir = tmp_path / "report-legacy"
+
+        argv = [
+            "observatory",
+            "report",
+            "--annotations",
+            str(ann_file),
+            "--output",
+            str(out_dir),
+        ]
+        with patch.object(sys, "argv", argv):
+            with pytest.warns(DeprecationWarning, match="--output-dir"):
+                main()
+
+        assert (out_dir / "reliability_report.md").is_file()
+        assert (out_dir / "reliability_report.json").is_file()
+
+    def test_report_help_mentions_output_dir_as_canonical(self):
+        """`observatory report --help` advertises --output-dir (not --output)
+        as the primary/canonical flag. --output may still appear but should
+        be marked deprecated in its help string.
+        """
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_diagnostics", "report", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0
+        help_text = result.stdout
+        assert "--output-dir" in help_text, (
+            "help text must mention --output-dir as the canonical flag"
+        )
+        # If --output is still advertised it must be flagged as deprecated.
+        if "--output " in help_text or help_text.rstrip().endswith("--output"):
+            assert "deprecated" in help_text.lower(), (
+                "--output must be marked deprecated in its help string"
+            )
+
+    def test_report_rejects_both_output_flags(self, tmp_path):
+        """Supplying both --output and --output-dir is ambiguous and must
+        error via argparse's mutually-exclusive group.
+        """
+        from agent_diagnostics.cli import main
+
+        ann_file = self._write_minimal_annotations(tmp_path)
+
+        argv = [
+            "observatory",
+            "report",
+            "--annotations",
+            str(ann_file),
+            "--output",
+            str(tmp_path / "a"),
+            "--output-dir",
+            str(tmp_path / "b"),
+        ]
+        with patch.object(sys, "argv", argv):
+            with pytest.raises(SystemExit):
+                main()
+
+    def test_cmd_report_namespace_with_output_dir(self, tmp_path):
+        """Direct Namespace invocation with output_dir must also work (this
+        is the pattern used by internal tests and by anyone programmatically
+        dispatching to cmd_report).
+        """
+        from agent_diagnostics.cli import cmd_report
+
+        ann_file = self._write_minimal_annotations(tmp_path)
+        out_dir = tmp_path / "ns-out"
+
+        args = argparse.Namespace(
+            annotations=str(ann_file), output_dir=str(out_dir), output=None
+        )
+        cmd_report(args)
+        assert (out_dir / "reliability_report.md").is_file()

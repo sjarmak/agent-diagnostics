@@ -24,4 +24,4 @@ command = "python3 -m agent_diagnostics annotate --signals data/signals.jsonl --
 name = "report"
 inputs = ["data/annotations.json"]
 outputs = ["data/report/reliability_report.md", "data/report/reliability_report.json"]
-command = "python3 -m agent_diagnostics report --annotations data/annotations.json --output data/report"
+command = "python3 -m agent_diagnostics report --annotations data/annotations.json --output-dir data/report"
