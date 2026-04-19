@@ -27,3 +27,6 @@ data/
 # Environment and lock files
 .env
 uv.lock
+
+# Claude Code worktrees (isolation scratch space)
+.claude/worktrees/
