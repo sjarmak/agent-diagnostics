@@ -9,10 +9,38 @@ Requires the ``query`` extra: ``pip install agent-diagnostics[query]``.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 TABLE_NAMES: tuple[str, ...] = ("signals", "annotations", "manifests")
+
+
+def _register_parquet_view(con: Any, name: str, parquet_path: Path) -> bool:
+    """Try to register *parquet_path* as DuckDB view *name*.
+
+    Returns ``True`` on success, ``False`` if the file cannot be read.
+    A warning is logged on failure so a single malformed file (e.g. a
+    schemaless zero-column stub) does not break unrelated queries.
+    """
+    import duckdb
+
+    escaped = str(parquet_path).replace("'", "''")
+    try:
+        con.execute(
+            f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')"
+        )
+        return True
+    except duckdb.Error as exc:
+        logger.warning(
+            "Skipping unreadable Parquet for table %r at %s: %s",
+            name,
+            parquet_path,
+            exc,
+        )
+        return False
 
 
 def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
@@ -54,11 +82,10 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
         jsonl_path = data_path / f"{name}.jsonl"
 
         if parquet_path.is_file():
-            escaped = str(parquet_path).replace("'", "''")
-            con.execute(
-                f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')"
-            )
-        elif jsonl_path.is_file():
+            if _register_parquet_view(con, name, parquet_path):
+                continue
+            # Parquet unreadable -- fall through to JSONL if present.
+        if jsonl_path.is_file():
             escaped = str(jsonl_path).replace("'", "''")
             con.execute(
                 f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
@@ -106,18 +133,17 @@ def get_schema(
         parquet_path = data_path / "export" / f"{name}.parquet"
         jsonl_path = data_path / f"{name}.jsonl"
 
+        registered = False
         if parquet_path.is_file():
-            escaped = str(parquet_path).replace("'", "''")
-            con.execute(
-                f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')"
-            )
-        elif jsonl_path.is_file():
-            escaped = str(jsonl_path).replace("'", "''")
-            con.execute(
-                f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
-            )
-        else:
-            continue
+            registered = _register_parquet_view(con, name, parquet_path)
+        if not registered:
+            if jsonl_path.is_file():
+                escaped = str(jsonl_path).replace("'", "''")
+                con.execute(
+                    f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
+                )
+            else:
+                continue
 
         result = con.execute(f"DESCRIBE SELECT * FROM {name}")
         columns = []

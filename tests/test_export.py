@@ -275,7 +275,13 @@ class TestExportParquet:
             export_parquet(tmp_path / "nonexistent", tmp_path / "out")
 
     def test_empty_jsonl_files(self, tmp_path):
-        """Export handles empty or missing JSONL files gracefully."""
+        """Export handles empty or missing JSONL files gracefully.
+
+        Empty tables must be skipped (not written as zero-column Parquet files),
+        because DuckDB's ``read_parquet`` rejects schemaless files.  The manifest
+        still records ``row_count`` = 0 for each empty table and simply omits
+        the file from ``sha256_per_file``.
+        """
         from agent_diagnostics.export import export_parquet
 
         data_dir = tmp_path / "data"
@@ -287,6 +293,55 @@ class TestExportParquet:
         manifest = export_parquet(data_dir, out_dir)
         assert manifest["row_count"]["signals"] == 0
         assert manifest["row_count"]["annotations"] == 0
+        assert manifest["row_count"]["manifests"] == 0
+
+        # Zero-row tables must not produce empty parquet stubs that break
+        # downstream DuckDB queries.
+        assert not (out_dir / "signals.parquet").exists()
+        assert not (out_dir / "annotations.parquet").exists()
+        assert not (out_dir / "manifests.parquet").exists()
+
+        # sha256_per_file only lists files that were actually written.
+        assert manifest["sha256_per_file"] == {}
+
+    def test_partial_empty_tables_skipped(self, tmp_path):
+        """Only non-empty tables produce Parquet files; empty ones are skipped.
+
+        Regression test for the shipped-stub bug where empty annotations/
+        manifests produced 318-byte zero-column Parquet files that DuckDB
+        rejected with "Need at least one non-root column in the file".
+        """
+        from agent_diagnostics.export import export_parquet
+
+        data_dir = _make_data_dir(tmp_path)
+        # Erase annotations and manifests -- only signals has data.
+        (data_dir / "annotations.jsonl").write_text("")
+        (data_dir / "manifests.jsonl").write_text("")
+
+        out_dir = tmp_path / "export"
+        manifest = export_parquet(data_dir, out_dir)
+
+        assert (out_dir / "signals.parquet").is_file()
+        assert not (out_dir / "annotations.parquet").exists()
+        assert not (out_dir / "manifests.parquet").exists()
+
+        assert manifest["row_count"] == {
+            "signals": 2,
+            "annotations": 0,
+            "manifests": 0,
+        }
+        assert set(manifest["sha256_per_file"]) == {"signals.parquet"}
+
+        # And DuckDB must be able to query the resulting export directory.
+        import duckdb
+
+        con = duckdb.connect(":memory:")
+        signals_path = str(out_dir / "signals.parquet").replace("'", "''")
+        result = con.execute(
+            f"SELECT count(*) FROM read_parquet('{signals_path}')"
+        ).fetchone()
+        con.close()
+        assert result == (2,)
 
     def test_multiple_taxonomy_versions_raises(self, tmp_path):
         """export_parquet raises ValueError when taxonomy versions conflict."""

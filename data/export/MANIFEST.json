@@ -7,9 +7,7 @@
     "manifests": 0
   },
   "sha256_per_file": {
-    "signals.parquet": "4cea2359787900e8fc20e0e583b21763da99f46d99868cf7f18a1877c9425222",
-    "annotations.parquet": "bbcc74b34c82eb790d2f623ba0dea98967c04e09f9a44c10dae5ceb9ac6c48e7",
-    "manifests.parquet": "bbcc74b34c82eb790d2f623ba0dea98967c04e09f9a44c10dae5ceb9ac6c48e7"
+    "signals.parquet": "4cea2359787900e8fc20e0e583b21763da99f46d99868cf7f18a1877c9425222"
   },
   "source_commit": "0206772a2a7e536951972e9f336d0c0b96461fc9",
   "generated_at": "2026-04-15T19:30:49.632550+00:00"
