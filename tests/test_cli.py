@@ -2,6 +2,8 @@
 
 import argparse
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -391,9 +393,8 @@ class TestCmdAnnotate:
     """Tests for cmd_annotate."""
 
     def test_missing_signals_file_exits(self, tmp_path):
-        from agent_diagnostics.cli import cmd_annotate
-
         import agent_diagnostics.annotator as _ann_mod
+        from agent_diagnostics.cli import cmd_annotate
 
         _ann_mod.annotate_all = MagicMock()
         try:
@@ -938,3 +939,103 @@ class TestCmdAnnotateJsonl:
         assert output.exists()
         lines = output.read_text().strip().splitlines()
         assert len(lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# cmd_calibrate: permission contract for composed-reference temp dir + file
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrateGoldenDirPermissions:
+    """The --golden-dir path materialises a reference.json in an internal
+    temp directory. The directory is always 0o700 and the file is always
+    0o600, regardless of caller umask, because the composed document exists
+    only for the lifetime of a single compare_annotations() call and must
+    never be exposed to other users on shared hosts."""
+
+    def test_golden_dir_reference_file_is_owner_only(self, tmp_path, monkeypatch):
+        from agent_diagnostics import calibrate as calibrate_mod
+        from agent_diagnostics.cli import cmd_calibrate
+
+        # Minimal golden corpus: one trial with one category. The trial_path
+        # key used by _load_annotations comes from the directory name, not
+        # from any field inside the JSON.
+        golden_dir = tmp_path / "golden"
+        golden_dir.mkdir()
+        trial_dir = golden_dir / "trial_a"
+        trial_dir.mkdir()
+        (trial_dir / "expected_annotations.json").write_text(
+            json.dumps(
+                {
+                    "categories": [
+                        {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
+                    ],
+                }
+            )
+        )
+
+        # Predictor annotation file covering the same trial.
+        predictor_path = tmp_path / "predictor.json"
+        predictor_path.write_text(
+            json.dumps(
+                {
+                    "annotations": [
+                        {
+                            "trial_path": "trial_a",
+                            "annotation_result_status": "ok",
+                            "categories": [
+                                {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
+
+        # Spy compare_annotations to capture mode while the temp file exists.
+        captured: dict[str, int] = {}
+        real_compare = calibrate_mod.compare_annotations
+
+        def spy(predictor, reference):
+            # reference is always a Path — cmd_calibrate constructs it as one
+            # (cli.py: `reference_path: Path`), so no coercion is needed here.
+            captured["file_mode"] = stat.S_IMODE(reference.stat().st_mode)
+            captured["dir_mode"] = stat.S_IMODE(reference.parent.stat().st_mode)
+            return real_compare(predictor, reference)
+
+        # Patch the source-module attribute. This works here only because
+        # cmd_calibrate imports compare_annotations inside the function body
+        # (cli.py:750), so the `from ... import` runs AFTER monkeypatch.setattr
+        # and picks up the spy. A module-level import would have captured the
+        # original function before the patch fires and the spy would be missed.
+        monkeypatch.setattr(calibrate_mod, "compare_annotations", spy)
+
+        # Force a permissive process umask so default file-create mode would
+        # be 0o644. The test then proves cmd_calibrate tightens to 0o600
+        # regardless of caller umask, rather than silently relying on whatever
+        # umask the pytest process happened to inherit. umask is process-global
+        # and not thread-safe; this project does not use pytest-xdist so the
+        # try/finally restore is sufficient.
+        old_umask = os.umask(0o022)
+        try:
+            args = argparse.Namespace(
+                predictor=str(predictor_path),
+                reference=None,
+                golden_dir=str(golden_dir),
+                output_dir=str(tmp_path / "out"),
+            )
+            cmd_calibrate(args)
+        finally:
+            os.umask(old_umask)
+
+        assert captured, (
+            "spy was never invoked — monkeypatch did not intercept "
+            "compare_annotations; the file-mode assertion below would have "
+            "raised KeyError rather than AssertionError"
+        )
+        assert captured["file_mode"] == 0o600, (
+            f"reference.json mode should be 0o600, got {oct(captured['file_mode'])}"
+        )
+        assert captured["dir_mode"] == 0o700, (
+            f"temp dir mode should be 0o700, got {oct(captured['dir_mode'])}"
+        )

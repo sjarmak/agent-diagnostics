@@ -737,6 +737,13 @@ def cmd_calibrate(args):
     document and used as the reference.
 
     Writes ``calibration.md`` and ``calibration.json`` under ``--output-dir``.
+
+    Permission contract: ``--output-dir`` is user-provided and its contents
+    are created with the caller's umask — the caller is responsible for
+    choosing an appropriately-permissioned directory. The internal temp
+    directory used when composing ``--golden-dir`` into a reference document
+    is always owner-only (``0o700``) and the composed ``reference.json`` is
+    ``0o600``, regardless of caller umask.
     """
     import tempfile
 
@@ -748,17 +755,26 @@ def cmd_calibrate(args):
         sys.exit(1)
 
     # Reference: either a plain annotations file or the golden corpus dir.
-    # When the golden corpus is used, we materialise the composed document in
-    # an owner-only temp directory so that any category names don't land in a
-    # world-readable file.
+    # When the golden corpus is used we materialise the composed document in
+    # an internal temp directory that is always owner-only regardless of
+    # interpreter. CPython's ``mkdtemp`` already creates the directory with
+    # mode 0o700 on POSIX, and the file is written inside it — the explicit
+    # chmod calls below are a portability hedge (not a race fix) and pin the
+    # file's own mode to 0o600 so that if the file ever escapes the temp dir
+    # (backup sweep, future refactor) it is still owner-readable only.  The
+    # window between open() and the post-write chmod is not exploitable here
+    # because the enclosing directory is 0o700, so no other user can traverse
+    # to the file during that window.
     tmp_dir: tempfile.TemporaryDirectory | None = None
     reference_path: Path
     if args.golden_dir:
         golden_doc = _collect_golden_corpus(Path(args.golden_dir))
         tmp_dir = tempfile.TemporaryDirectory(prefix="observatory-calibrate-")
+        os.chmod(tmp_dir.name, 0o700)
         reference_path = Path(tmp_dir.name) / "reference.json"
         with open(reference_path, "w", encoding="utf-8") as f:
             json.dump(golden_doc, f)
+        os.chmod(reference_path, 0o600)
     elif args.reference:
         reference_path = Path(args.reference)
         if not reference_path.is_file():
