@@ -1,11 +1,29 @@
-"""CLI entrypoint for the Agent Reliability Observatory."""
+"""CLI entrypoint for the Agent Reliability Observatory.
+
+Logging discipline
+------------------
+The root logger is configured only in :func:`main` (the process entry point);
+library modules obtain loggers via ``logging.getLogger(__name__)`` and never
+install handlers of their own.  Log records are emitted on stderr with the
+format ``"%(levelname)s %(name)s: %(message)s"`` so structured pipelines can
+parse them without interleaving user-facing stdout.
+
+Genuine user-facing stdout output (tables, schema reports, pipeline summaries)
+is still emitted with :func:`print`; each such call site carries an inline
+``# STDOUT: <why>`` comment.  Every other caller in this module uses the module
+logger below.
+"""
 
 import argparse
 import json
+import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Narrow-tall annotation helpers
@@ -95,10 +113,7 @@ def _write_to_annotation_store(
 
     store = AnnotationStore(Path(annotations_out))
     count = store.upsert_annotations(rows, taxonomy_version=taxonomy_version)
-    print(
-        f"AnnotationStore: wrote {count} rows to {annotations_out}",
-        file=sys.stderr,
-    )
+    logger.info("AnnotationStore: wrote %d rows to %s", count, annotations_out)
 
 
 def cmd_extract(args):
@@ -107,7 +122,7 @@ def cmd_extract(args):
 
     runs_dir = Path(args.runs_dir)
     if not runs_dir.is_dir():
-        print(f"Error: runs directory not found: {runs_dir}", file=sys.stderr)
+        logger.error("runs directory not found: %s", runs_dir)
         sys.exit(1)
 
     cache = None
@@ -129,7 +144,7 @@ def cmd_extract(args):
             f" (cache: {stats['hits']} hits, {stats['misses']} misses, "
             f"{stats['entries']} entries)"
         )
-    print(f"Extracted signals from {len(signals)} trials{suffix}", file=sys.stderr)
+    logger.info("Extracted signals from %d trials%s", len(signals), suffix)
 
 
 def cmd_annotate(args):
@@ -142,7 +157,7 @@ def cmd_annotate(args):
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
-        print(f"Error: signals file not found: {signals_path}", file=sys.stderr)
+        logger.error("signals file not found: %s", signals_path)
         sys.exit(1)
 
     signals_list = load_signals(signals_path)
@@ -197,10 +212,10 @@ def cmd_annotate(args):
     write_output(annotations, output)
 
     total_categories = sum(len(a["categories"]) for a in annotation_list)
-    print(
-        f"Annotated {len(annotation_list)} trials "
-        f"with {total_categories} total category assignments",
-        file=sys.stderr,
+    logger.info(
+        "Annotated %d trials with %d total category assignments",
+        len(annotation_list),
+        total_categories,
     )
 
     # Write to AnnotationStore if --annotations-out is provided
@@ -226,7 +241,7 @@ def cmd_report(args):
 
     annotations_path = Path(args.annotations)
     if not annotations_path.is_file():
-        print(f"Error: annotations file not found: {annotations_path}", file=sys.stderr)
+        logger.error("annotations file not found: %s", annotations_path)
         sys.exit(1)
 
     with open(annotations_path) as f:
@@ -235,7 +250,7 @@ def cmd_report(args):
     output_dir = Path(args.output)
     md_path, json_path = generate_report(annotations, output_dir)
 
-    print(f"Report written to {md_path} and {json_path}", file=sys.stderr)
+    logger.info("Report written to %s and %s", md_path, json_path)
 
 
 def cmd_llm_annotate(args):
@@ -249,7 +264,6 @@ def cmd_llm_annotate(args):
     reasons are logged at WARNING and persisted in ``error_reason`` on the
     affected annotation so downstream consumers can exclude them deterministically.
     """
-    import logging
     import random
 
     from agent_diagnostics.llm_annotator import annotate_batch
@@ -260,11 +274,9 @@ def cmd_llm_annotate(args):
         AnnotationOk,
     )
 
-    logger = logging.getLogger(__name__)
-
     signals_path = Path(args.signals)
     if not signals_path.is_file():
-        print(f"Error: signals file not found: {signals_path}", file=sys.stderr)
+        logger.error("signals file not found: %s", signals_path)
         sys.exit(1)
 
     with open(signals_path) as f:
@@ -278,17 +290,18 @@ def cmd_llm_annotate(args):
         and (Path(s["trial_path"]) / "agent" / "trajectory.json").is_file()
     ]
     if not has_trajectory:
-        print("Error: no trials with trajectory files found", file=sys.stderr)
+        logger.error("no trials with trajectory files found")
         sys.exit(1)
 
     backend = args.backend
     sample_size = min(args.sample_size, len(has_trajectory))
     sampled = random.sample(has_trajectory, sample_size)
-    print(
-        f"Sampled {sample_size} trials (from {len(has_trajectory)} with trajectories)",
-        file=sys.stderr,
+    logger.info(
+        "Sampled %d trials (from %d with trajectories)",
+        sample_size,
+        len(has_trajectory),
     )
-    print(f"Backend: {backend}, Model: {args.model}", file=sys.stderr)
+    logger.info("Backend: %s, Model: %s", backend, args.model)
 
     taxonomy = load_taxonomy()
     now = datetime.now(timezone.utc).isoformat()
@@ -363,14 +376,16 @@ def cmd_llm_annotate(args):
         json.dump(result_doc, f, indent=2, default=str)
 
     total_categories = sum(len(a["categories"]) for a in annotations)
-    print(
-        f"Done: {len(annotations)}/{sample_size} trials annotated "
-        f"with {total_categories} category assignments "
-        f"(ok={summary_counts['ok']}, "
-        f"no_categories={summary_counts['no_categories']}, "
-        f"error={summary_counts['error']})"
-        f". Output: {output}",
-        file=sys.stderr,
+    logger.info(
+        "Done: %d/%d trials annotated with %d category assignments "
+        "(ok=%d, no_categories=%d, error=%d). Output: %s",
+        len(annotations),
+        sample_size,
+        total_categories,
+        summary_counts["ok"],
+        summary_counts["no_categories"],
+        summary_counts["error"],
+        output,
     )
 
     # Write to AnnotationStore if --annotations-out is provided.
@@ -417,24 +432,28 @@ def cmd_train(args):
 
     n_clf = len(model["classifiers"])
     n_skip = len(model["skipped_categories"])
-    print(
-        f"Trained {n_clf} classifiers on {model['training_samples']} samples "
-        f"({n_skip} categories skipped, < {model['min_positive']} positive)",
-        file=sys.stderr,
+    logger.info(
+        "Trained %d classifiers on %d samples (%d categories skipped, < %d positive)",
+        n_clf,
+        model["training_samples"],
+        n_skip,
+        model["min_positive"],
     )
     for cat, clf in sorted(model["classifiers"].items()):
-        print(
-            f"  {cat}: {clf['positive_count']}/{clf['total_count']} positive, "
-            f"train_acc={clf['train_accuracy']:.2f}",
-            file=sys.stderr,
+        logger.info(
+            "  %s: %d/%d positive, train_acc=%.2f",
+            cat,
+            clf["positive_count"],
+            clf["total_count"],
+            clf["train_accuracy"],
         )
 
     # If --eval is provided, evaluate on the same data (quick sanity check)
     if args.eval:
         eval_results = evaluate(model, args.labels, args.signals)
-        print("\n" + format_eval_markdown(eval_results, model), file=sys.stderr)
+        logger.info("\n%s", format_eval_markdown(eval_results, model))
 
-    print(f"Model saved to {output}", file=sys.stderr)
+    logger.info("Model saved to %s", output)
 
 
 def cmd_predict(args):
@@ -454,10 +473,12 @@ def cmd_predict(args):
 
     n = len(result["annotations"])
     total_cats = sum(len(a["categories"]) for a in result["annotations"])
-    print(
-        f"Predicted {total_cats} category assignments across {n} trials "
-        f"(threshold={args.threshold}). Output: {output}",
-        file=sys.stderr,
+    logger.info(
+        "Predicted %d category assignments across %d trials (threshold=%s). Output: %s",
+        total_cats,
+        n,
+        args.threshold,
+        output,
     )
 
     # Write to AnnotationStore if --annotations-out is provided
@@ -503,11 +524,14 @@ def cmd_ensemble(args):
     n = len(result["annotations"])
     total_cats = sum(len(a["categories"]) for a in result["annotations"])
     tiers = result.get("tier_counts", {})
-    print(
-        f"Ensemble: {total_cats} assignments across {n} trials "
-        f"(heuristic={tiers.get('heuristic', 0)}, classifier={tiers.get('classifier', 0)}). "
-        f"Output: {output}",
-        file=sys.stderr,
+    logger.info(
+        "Ensemble: %d assignments across %d trials "
+        "(heuristic=%d, classifier=%d). Output: %s",
+        total_cats,
+        n,
+        tiers.get("heuristic", 0),
+        tiers.get("classifier", 0),
+        output,
     )
 
 
@@ -524,7 +548,7 @@ def cmd_ingest(args):
 
     runs_dir = Path(args.runs_dir)
     if not runs_dir.is_dir():
-        print(f"Error: runs directory not found: {runs_dir}", file=sys.stderr)
+        logger.error("runs directory not found: %s", runs_dir)
         sys.exit(1)
 
     # Load manifest for benchmark resolution
@@ -532,7 +556,7 @@ def cmd_ingest(args):
     if args.manifest:
         manifest_path = Path(args.manifest)
         if not manifest_path.is_file():
-            print(f"Error: manifest file not found: {manifest_path}", file=sys.stderr)
+            logger.error("manifest file not found: %s", manifest_path)
             sys.exit(1)
         suite_mapping = load_manifest(manifest_path)
 
@@ -600,12 +624,8 @@ def cmd_ingest(args):
         with open(state_path, "w") as f:
             json.dump(state, f, indent=2)
 
-    print(
-        f"Ingested {len(signals_list)} trials"
-        + (f" (skipped {skipped} unchanged)" if skipped else "")
-        + f" -> {output}",
-        file=sys.stderr,
-    )
+    suffix = f" (skipped {skipped} unchanged)" if skipped else ""
+    logger.info("Ingested %d trials%s -> %s", len(signals_list), suffix, output)
 
 
 def cmd_db_schema(args):
@@ -615,9 +635,10 @@ def cmd_db_schema(args):
     try:
         output = get_schema(args.data_dir, fmt=args.format)
     except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(1)
 
+    # STDOUT: schema report is the primary user-requested output of this command.
     print(output)
 
 
@@ -628,9 +649,10 @@ def cmd_query(args):
     try:
         rows = run_query(args.sql, args.data_dir)
     except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(1)
 
+    # STDOUT: query result table is the primary user-requested output.
     print(format_table(rows))
 
 
@@ -640,28 +662,29 @@ def cmd_export(args):
 
     data_dir = Path(args.data_dir)
     if not data_dir.is_dir():
-        print(f"Error: data directory not found: {data_dir}", file=sys.stderr)
+        logger.error("data directory not found: %s", data_dir)
         sys.exit(1)
 
     fmt = args.format
     if fmt != "parquet":
-        print(f"Error: unsupported export format: {fmt}", file=sys.stderr)
+        logger.error("unsupported export format: %s", fmt)
         sys.exit(1)
 
     try:
         manifest = export_parquet(data_dir, args.out)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(1)
 
     row_counts = manifest.get("row_count", {})
     total = sum(row_counts.values())
-    print(
-        f"Exported {total} rows to {args.out} "
-        f"(signals={row_counts.get('signals', 0)}, "
-        f"annotations={row_counts.get('annotations', 0)}, "
-        f"manifests={row_counts.get('manifests', 0)})",
-        file=sys.stderr,
+    logger.info(
+        "Exported %d rows to %s (signals=%d, annotations=%d, manifests=%d)",
+        total,
+        args.out,
+        row_counts.get("signals", 0),
+        row_counts.get("annotations", 0),
+        row_counts.get("manifests", 0),
     )
 
 
@@ -671,11 +694,11 @@ def cmd_manifest_refresh(args):
 
     data_dir = Path(args.data_dir)
     if not data_dir.is_dir():
-        print(f"Error: data directory not found: {data_dir}", file=sys.stderr)
+        logger.error("data directory not found: %s", data_dir)
         sys.exit(1)
 
     output_path = refresh_manifests(data_dir)
-    print(f"Manifests refreshed: {output_path}", file=sys.stderr)
+    logger.info("Manifests refreshed: %s", output_path)
 
 
 def cmd_pipeline_run(args):
@@ -688,16 +711,17 @@ def cmd_pipeline_run(args):
 
     config_path = Path(args.config)
     if not config_path.is_file():
-        print(f"Error: pipeline config not found: {config_path}", file=sys.stderr)
+        logger.error("pipeline config not found: %s", config_path)
         sys.exit(1)
 
     project_root = Path(args.project_root) if args.project_root else config_path.parent
     try:
         results = run_pipeline(config_path, project_root)
     except PipelineError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        logger.error("%s", exc)
         sys.exit(1)
 
+    # STDOUT: pipeline run summary is the user-requested output of this command.
     print(format_summary(results))
 
     if any(r.status == "failed" for r in results):
@@ -720,10 +744,7 @@ def cmd_calibrate(args):
 
     predictor_path = Path(args.predictor)
     if not predictor_path.is_file():
-        print(
-            f"Error: predictor annotations not found: {predictor_path}",
-            file=sys.stderr,
-        )
+        logger.error("predictor annotations not found: %s", predictor_path)
         sys.exit(1)
 
     # Reference: either a plain annotations file or the golden corpus dir.
@@ -741,16 +762,10 @@ def cmd_calibrate(args):
     elif args.reference:
         reference_path = Path(args.reference)
         if not reference_path.is_file():
-            print(
-                f"Error: reference annotations not found: {reference_path}",
-                file=sys.stderr,
-            )
+            logger.error("reference annotations not found: %s", reference_path)
             sys.exit(1)
     else:
-        print(
-            "Error: provide --reference or --golden-dir for the label source",
-            file=sys.stderr,
-        )
+        logger.error("provide --reference or --golden-dir for the label source")
         sys.exit(1)
 
     try:
@@ -769,10 +784,11 @@ def cmd_calibrate(args):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, default=str)
 
-    print(
-        f"Calibration report: {md_path} (markdown), {json_path} (json). "
-        f"Shared trials: {summary.get('shared_trials', 0)}",
-        file=sys.stderr,
+    logger.info(
+        "Calibration report: %s (markdown), %s (json). Shared trials: %d",
+        md_path,
+        json_path,
+        summary.get("shared_trials", 0),
     )
 
 
@@ -826,7 +842,7 @@ def cmd_validate(args):
 
     annotations_path = Path(args.annotations)
     if not annotations_path.is_file():
-        print(f"Error: annotations file not found: {annotations_path}", file=sys.stderr)
+        logger.error("annotations file not found: %s", annotations_path)
         sys.exit(1)
 
     # Load annotations
@@ -834,7 +850,7 @@ def cmd_validate(args):
         with open(annotations_path) as f:
             annotations = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"Error: invalid JSON: {e}", file=sys.stderr)
+        logger.error("invalid JSON: %s", e)
         sys.exit(1)
 
     errors = []
@@ -861,23 +877,73 @@ def cmd_validate(args):
                 )
 
     if errors:
-        print(f"Validation FAILED with {len(errors)} error(s):", file=sys.stderr)
+        logger.error("Validation FAILED with %d error(s):", len(errors))
         for err in errors:
-            print(f"  - {err}", file=sys.stderr)
+            logger.error("  - %s", err)
         sys.exit(1)
 
     n_annotations = len(annotations.get("annotations", []))
-    print(
-        f"Validation passed: {n_annotations} annotations, all valid.",
-        file=sys.stderr,
-    )
+    logger.info("Validation passed: %d annotations, all valid.", n_annotations)
     sys.exit(0)
+
+
+_LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+
+
+def _resolve_log_level(verbose: int, quiet: bool) -> int:
+    """Resolve the effective root log level from CLI flags and environment.
+
+    Precedence: ``-q`` > ``-v``/``-vv`` > ``AGENT_DIAGNOSTICS_LOG_LEVEL`` > INFO.
+    Unknown env values fall back to INFO rather than erroring, so a malformed
+    environment never blocks CLI usage.
+    """
+    if quiet:
+        return logging.WARNING
+    if verbose >= 2:
+        return logging.DEBUG
+    if verbose == 1:
+        return logging.INFO
+    env = os.environ.get("AGENT_DIAGNOSTICS_LOG_LEVEL", "").strip().upper()
+    if env:
+        numeric = logging.getLevelName(env)
+        if isinstance(numeric, int):
+            return numeric
+    return logging.INFO
+
+
+def _configure_logging(level: int) -> None:
+    """Install a single stderr handler on the root logger.
+
+    ``force=True`` replaces any pre-existing handlers so repeated ``main``
+    calls during tests don't accumulate duplicates; pytest's ``caplog``
+    fixture attaches its own handler after this runs and therefore still
+    captures records.
+    """
+    logging.basicConfig(
+        level=level,
+        format=_LOG_FORMAT,
+        stream=sys.stderr,
+        force=True,
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="observatory",
         description="Agent Reliability Observatory",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase log verbosity: -v=INFO (default), -vv=DEBUG",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Only emit WARNING and above (overrides -v).",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
@@ -1179,6 +1245,7 @@ def main():
     p_db_schema.set_defaults(func=cmd_db_schema)
 
     args = parser.parse_args()
+    _configure_logging(_resolve_log_level(args.verbose, args.quiet))
     if args.command is None:
         parser.print_help()
         sys.exit(0)

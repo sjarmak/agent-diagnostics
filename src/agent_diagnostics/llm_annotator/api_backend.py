@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -205,7 +204,7 @@ def annotate_batch_api(
             idx, result = await coro
             results[idx] = result
             done += 1
-            print(f"  [{done}/{len(trials)}] annotated", file=sys.stderr)
+            logger.info("  [%d/%d] annotated", done, len(trials))
         return results
 
     return asyncio.run(_run_all())

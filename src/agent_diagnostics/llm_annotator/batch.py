@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -133,21 +132,18 @@ def annotate_batch_messages(
         )
         pending[custom_id] = (idx, str(trial_dir), ckey)
 
-    print(
-        f"Batch: {cached_count} cached, {len(batch_requests)} to submit",
-        file=sys.stderr,
+    logger.info(
+        "Batch: %d cached, %d to submit", cached_count, len(batch_requests)
     )
 
     if not batch_requests:
-        print("All trials resolved from cache.", file=sys.stderr)
+        logger.info("All trials resolved from cache.")
         return results
 
     # --- Phase 2: submit batch ---
     client = anthropic.Anthropic()
     batch = client.messages.batches.create(requests=batch_requests)
-    print(
-        f"Batch created: {batch.id} ({len(batch_requests)} requests)", file=sys.stderr
-    )
+    logger.info("Batch created: %s (%d requests)", batch.id, len(batch_requests))
 
     # --- Phase 3: poll until complete ---
     while batch.processing_status != "ended":
@@ -161,10 +157,13 @@ def annotate_batch_messages(
             + counts.canceled
             + counts.expired
         )
-        print(
-            f"  Batch {batch.id}: {counts.succeeded}/{total} succeeded, "
-            f"{counts.errored} errored, {counts.processing} processing",
-            file=sys.stderr,
+        logger.info(
+            "  Batch %s: %d/%d succeeded, %d errored, %d processing",
+            batch.id,
+            counts.succeeded,
+            total,
+            counts.errored,
+            counts.processing,
         )
 
     # --- Phase 4: parse results ---
@@ -208,9 +207,10 @@ def annotate_batch_messages(
             )
             errored += 1
 
-    print(
-        f"Batch complete: {succeeded} succeeded, {errored} errored, "
-        f"{cached_count} from cache",
-        file=sys.stderr,
+    logger.info(
+        "Batch complete: %d succeeded, %d errored, %d from cache",
+        succeeded,
+        errored,
+        cached_count,
     )
     return results
