@@ -198,4 +198,14 @@ class TestVersion:
     """Package version is accessible."""
 
     def test_version_string(self) -> None:
-        assert agent_diagnostics.__version__ == "0.7.0"
+        import re
+
+        version = agent_diagnostics.__version__
+        # Pin the shape (semver "MAJOR.MINOR.PATCH" + optional pre-release
+        # suffix) rather than a literal; otherwise every release breaks this
+        # test and tempts a no-op bump. See bead agent-diagnostics-9py for
+        # the follow-up that drops the hardcoded string in favor of
+        # importlib.metadata.
+        assert re.fullmatch(r"\d+\.\d+\.\d+([-+].+)?", version), (
+            f"__version__ {version!r} does not look like a semver string"
+        )

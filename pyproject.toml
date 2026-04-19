@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-diagnostics"
-version = "0.8.0"
+version = "0.8.1"
 description = "Agent Reliability Observatory — a behavioral taxonomy and annotation framework for analyzing why coding agents succeed or fail."
 readme = "README.md"
 license = "Apache-2.0"

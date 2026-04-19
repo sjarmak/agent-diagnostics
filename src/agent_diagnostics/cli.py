@@ -172,6 +172,11 @@ def cmd_annotate(args):
             "trial_path": sig.get("trial_path", ""),
             "reward": sig.get("reward"),
             "passed": sig.get("passed", False),
+            # Mirror the LLM-annotate v2 contract so downstream consumers
+            # can branch on status uniformly regardless of annotator path.
+            # Heuristic annotation is deterministic and never errors per-trial;
+            # "ok" / "no_categories" are the only reachable states.
+            "annotation_result_status": "ok" if assignments else "no_categories",
             "categories": [
                 {
                     "name": a.name,
@@ -236,7 +241,13 @@ def cmd_annotate(args):
 
 
 def cmd_report(args):
-    """Generate reliability report from annotations."""
+    """Generate reliability report from annotations.
+
+    Accepts either ``.json`` (annotation document with ``{"annotations":
+    [...]}`` or bare list) or ``.jsonl`` (one record per line) so the
+    output of ``observatory annotate`` is consumable directly regardless
+    of the extension the user chose for that stage.
+    """
     from agent_diagnostics.report import generate_report
 
     annotations_path = Path(args.annotations)
@@ -244,8 +255,29 @@ def cmd_report(args):
         logger.error("annotations file not found: %s", annotations_path)
         sys.exit(1)
 
-    with open(annotations_path) as f:
-        annotations = json.load(f)
+    if annotations_path.suffix == ".jsonl":
+        records: list[dict[str, Any]] = []
+        with open(annotations_path) as f:
+            for lineno, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    logger.error(
+                        "malformed JSON on line %d of %s: %s",
+                        lineno,
+                        annotations_path,
+                        exc,
+                    )
+                    sys.exit(1)
+        annotations: dict[str, Any] = {"annotations": records}
+    else:
+        with open(annotations_path) as f:
+            annotations = json.load(f)
+        # Tolerate a bare-list .json file (older tooling wrote this shape).
+        if isinstance(annotations, list):
+            annotations = {"annotations": annotations}
 
     output_dir = Path(args.output)
     md_path, json_path = generate_report(annotations, output_dir)
@@ -808,12 +840,26 @@ def cmd_calibrate(args):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, default=str)
 
+    shared_trials = summary.get("shared_trials", 0)
     logger.info(
         "Calibration report: %s (markdown), %s (json). Shared trials: %d",
         md_path,
         json_path,
-        summary.get("shared_trials", 0),
+        shared_trials,
     )
+    if shared_trials == 0:
+        # Most common cause: the predictor was annotated against a runs/
+        # directory (trial_path = filesystem path) while the golden corpus
+        # uses trial_id_short dir names. The join silently produces an
+        # empty report — surface the likely cause so the user doesn't have
+        # to guess.
+        logger.warning(
+            "shared_trials=0: predictor and reference have no overlapping "
+            "trial_path values. If --golden-dir was used, the predictor's "
+            "trial_path fields must match the golden-corpus directory names "
+            "(typically trial_id_short hashes), not filesystem paths from "
+            "`ingest --runs-dir` / `annotate --signals` against a runs tree."
+        )
 
 
 def _collect_golden_corpus(dir_path: Path) -> dict[str, Any]:

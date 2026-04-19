@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-04-19
+
+Patch release fixing three UX issues surfaced by a clean-room smoke of 0.8.0
+from PyPI.
+
+### Fixed
+- `observatory report --annotations` now accepts `.jsonl` input
+  (one-record-per-line, as emitted by `observatory annotate --output X.jsonl`)
+  in addition to the existing `.json` document and bare-list forms. Previously
+  chaining `annotate` → `report` with a `.jsonl` intermediate crashed with
+  `json.decoder.JSONDecodeError: Extra data`. Malformed JSONL lines now
+  produce a clean `logger.error` + `sys.exit(1)` instead of a raw traceback.
+- `observatory annotate` records now carry `annotation_result_status`
+  (`"ok"` when categories fire, `"no_categories"` otherwise), matching the
+  LLM-annotate v2 contract that 0.8.0's CHANGELOG claimed was already
+  end-to-end.
+- `observatory calibrate` logs a `WARNING` when `shared_trials=0` pointing
+  at the likely trial_path join-key mismatch (filesystem path vs
+  `trial_id_short` dir names). Previously the mismatch silently produced an
+  empty report; still exits 0 since empty output can be a legitimate result.
+
+### Internal
+- `tests/test_taxonomy.py::test_version_string` now pins the semver shape
+  instead of a literal `"0.7.0"`, which was stale after the 0.8.0 bump and
+  tempted a no-op release-prep edit. Follow-up (`agent-diagnostics-9py`)
+  replaces the hardcoded `__version__` with `importlib.metadata`.
+
 ## [0.8.0] — 2026-04-19
 
 ### Added

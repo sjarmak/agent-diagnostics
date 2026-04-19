@@ -1065,3 +1065,188 @@ class TestCalibrateGoldenDirPermissions:
             "golden" in rec.message.lower() and "not found" in rec.message.lower()
             for rec in caplog.records
         ), f"expected clean error log, got: {[r.message for r in caplog.records]}"
+
+
+class TestCalibrateSharedTrialsWarning:
+    """When predictor.trial_path values don't join against the golden
+    corpus dir names, compare_annotations produces shared_trials=0.
+    The CLI surfaces this via a WARNING so the empty report doesn't
+    silently pass for a join-key mismatch. Still exits 0 — empty output
+    is a valid result, just rarely the one the user meant."""
+
+    def test_calibrate_warns_when_shared_trials_is_zero(
+        self, tmp_path, caplog
+    ):
+        import logging
+
+        from agent_diagnostics.cli import cmd_calibrate
+
+        # Golden corpus with one trial named "trial_a".
+        golden_dir = tmp_path / "golden"
+        golden_dir.mkdir()
+        (golden_dir / "trial_a").mkdir()
+        (golden_dir / "trial_a" / "expected_annotations.json").write_text(
+            json.dumps({"categories": [{"name": "cat_x", "confidence": 0.8}]})
+        )
+
+        # Predictor whose trial_path does NOT match (filesystem-style path).
+        predictor_path = tmp_path / "predictor.json"
+        predictor_path.write_text(
+            json.dumps(
+                {
+                    "annotations": [
+                        {
+                            "trial_path": "runs/totally_different_name",
+                            "categories": [
+                                {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
+
+        args = argparse.Namespace(
+            predictor=str(predictor_path),
+            reference=None,
+            golden_dir=str(golden_dir),
+            output_dir=str(tmp_path / "out"),
+        )
+        with caplog.at_level(logging.WARNING, logger="agent_diagnostics.cli"):
+            cmd_calibrate(args)
+
+        warning_messages = [
+            rec.message for rec in caplog.records if rec.levelno >= logging.WARNING
+        ]
+        assert any(
+            "trial_path" in msg or "shared_trials" in msg or "no overlap" in msg.lower()
+            for msg in warning_messages
+        ), f"expected WARN about join mismatch, got: {warning_messages}"
+
+
+# ---------------------------------------------------------------------------
+# cmd_annotate: annotation_result_status propagation (0.8.1 bead 13t)
+# ---------------------------------------------------------------------------
+
+
+class TestAnnotateResultStatusField:
+    """0.8.0 release notes claim annotation_result_status propagates through
+    the v2 schema. Heuristic cmd_annotate was missing the field. This test
+    pins the contract for both branches (ok / no_categories)."""
+
+    def test_heuristic_annotate_emits_status_on_every_record(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate
+
+        # Two trials hand-crafted to hit different branches:
+        # - ok: premature_termination fires reliably when effective_length<3
+        #   and reward>0, so a short passing trial always gets ≥1 category.
+        # - no_categories: an all-zeros signal with no reward and no
+        #   trajectory gives no heuristic checker anything to latch onto.
+        signals_path = tmp_path / "signals.jsonl"
+        signals_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "task_id": "t_ok",
+                            "trial_path": "runs/t_ok",
+                            "reward": 0.5,
+                            "passed": True,
+                            "agent_name": "test-agent",
+                            "total_turns": 0,
+                            "trajectory_length": 0,
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "task_id": "t_empty",
+                            "trial_path": "runs/t_empty",
+                            "agent_name": "test-agent",
+                        }
+                    ),
+                ]
+            )
+            + "\n"
+        )
+        out_path = tmp_path / "annotations.json"
+
+        cmd_annotate(
+            argparse.Namespace(signals=str(signals_path), output=str(out_path))
+        )
+        doc = json.loads(out_path.read_text())
+        records = {r["trial_path"]: r for r in doc["annotations"]}
+
+        # Field is present on every record regardless of branch.
+        for trial_path, rec in records.items():
+            assert "annotation_result_status" in rec, (
+                f"{trial_path} missing annotation_result_status; keys="
+                f"{sorted(rec.keys())}"
+            )
+
+        # ok branch: trial with categories
+        ok_rec = records["runs/t_ok"]
+        assert ok_rec["categories"], "expected fixture to fire ≥1 heuristic"
+        assert ok_rec["annotation_result_status"] == "ok"
+
+        # no_categories branch: trial with no categories
+        empty_rec = records["runs/t_empty"]
+        assert empty_rec["categories"] == []
+        assert empty_rec["annotation_result_status"] == "no_categories"
+
+
+# ---------------------------------------------------------------------------
+# cmd_report: JSONL input support (0.8.1 bead xo1)
+# ---------------------------------------------------------------------------
+
+
+class TestReportAcceptsJSONL:
+    """Report must consume annotate's JSONL output without hand-conversion.
+    0.8.0 required a {annotations:[...]} document and crashed on JSONL with
+    'json.decoder.JSONDecodeError: Extra data'."""
+
+    def _annotate_then_report(self, tmp_path, ext: str):
+        from agent_diagnostics.cli import cmd_annotate, cmd_report
+
+        # Two minimal signals so the report has something non-trivial to render.
+        signals_path = tmp_path / "signals.jsonl"
+        signals_path.write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "task_id": f"t{i}",
+                        "trial_path": f"runs/t{i}",
+                        "reward": 1.0,
+                        "passed": True,
+                        "agent_name": "test-agent",
+                        "total_turns": 5,
+                        "trajectory_length": 5,
+                    }
+                )
+                for i in range(2)
+            )
+            + "\n"
+        )
+        ann_path = tmp_path / f"annotations.{ext}"
+        cmd_annotate(
+            argparse.Namespace(signals=str(signals_path), output=str(ann_path))
+        )
+
+        report_dir = tmp_path / f"report_{ext}"
+        cmd_report(
+            argparse.Namespace(annotations=str(ann_path), output=str(report_dir))
+        )
+        return report_dir
+
+    def test_report_consumes_jsonl_output_of_annotate(self, tmp_path):
+        report_dir = self._annotate_then_report(tmp_path, "jsonl")
+        md = report_dir / "reliability_report.md"
+        js = report_dir / "reliability_report.json"
+        assert md.is_file() and js.is_file()
+        assert "Total annotated trials" in md.read_text()
+
+    def test_report_still_consumes_json_document(self, tmp_path):
+        report_dir = self._annotate_then_report(tmp_path, "json")
+        md = report_dir / "reliability_report.md"
+        js = report_dir / "reliability_report.json"
+        assert md.is_file() and js.is_file()
+        assert "Total annotated trials" in md.read_text()
