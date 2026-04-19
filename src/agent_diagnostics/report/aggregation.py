@@ -9,7 +9,7 @@ dependency on other ``report`` submodules to stay a leaf of the package DAG.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from typing import Any
+from typing import Any, cast
 
 from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
 
@@ -320,7 +320,7 @@ def _paired_comparison(annotations: list[dict]) -> list[dict]:
             )
 
     # Sort by number of shared tasks descending
-    pair_results.sort(key=lambda x: -x["shared_tasks"])
+    pair_results.sort(key=lambda x: -cast(int, x["shared_tasks"]))
     return pair_results
 
 

@@ -59,9 +59,9 @@ def co_occurrence_matrix(annotations: list[dict]) -> dict[str, dict[str, float]]
     pair_count: dict[tuple[str, str], int] = Counter()
     for cats in trial_cats:
         cat_list = sorted(cats)
-        for i, a in enumerate(cat_list):
-            for b in cat_list[i + 1 :]:
-                pair_count[(a, b)] += 1
+        for i, cat_a in enumerate(cat_list):
+            for cat_b in cat_list[i + 1 :]:
+                pair_count[(cat_a, cat_b)] += 1
 
     # Build matrix
     matrix: dict[str, dict[str, float]] = {}
