@@ -1,6 +1,12 @@
 """Agent Reliability Observatory — behavioral taxonomy and annotation framework for coding agents."""
 
-__version__ = "0.8.1"
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
+try:
+    __version__ = _pkg_version("agent-diagnostics")
+except PackageNotFoundError:  # editable install before metadata is generated
+    __version__ = "0.0.0+unknown"
 
 from agent_diagnostics.annotator import annotate_trial
 from agent_diagnostics.ensemble import ensemble_all, ensemble_annotate
