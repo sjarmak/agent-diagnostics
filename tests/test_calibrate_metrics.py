@@ -14,7 +14,6 @@ Covers:
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import pytest
@@ -363,5 +362,5 @@ class TestCompareAnnotationsCalibration:
 
         summary = compare_annotations(file_h, file_l)
         cat_a = summary["categories"]["cat_a"]
-        assert math.isclose(cat_a["ece"], 0.0, abs_tol=1e-6)
-        assert math.isclose(cat_a["brier"], 0.0, abs_tol=1e-6)
+        assert cat_a["ece"] == pytest.approx(0.0, abs=1e-6)
+        assert cat_a["brier"] == pytest.approx(0.0, abs=1e-6)

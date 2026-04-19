@@ -33,7 +33,24 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
+
+
+class ReliabilityDiagram(TypedDict):
+    """Per-bin confidence vs accuracy breakdown returned by
+    :func:`reliability_diagram`.
+
+    All list fields are parallel and of length ``n_bins`` except ``bin_edges``,
+    which has length ``n_bins + 1``.
+    """
+
+    bin_edges: list[float]
+    bin_centers: list[float]
+    mean_confidence: list[float]
+    accuracy: list[float]
+    count: list[int]
+    n_bins: int
+    total: int
 
 
 def _load_annotations(
@@ -215,7 +232,7 @@ def reliability_diagram(
     pairs: Iterable[tuple[float, int]],
     *,
     n_bins: int = 10,
-) -> dict[str, Any]:
+) -> ReliabilityDiagram:
     """Per-bin confidence vs observed-accuracy breakdown for plotting.
 
     Bins are equal-width on ``[0, 1]``; the upper edge (1.0) is included in
@@ -231,10 +248,9 @@ def reliability_diagram(
 
     Returns
     -------
-    dict
-        Keys: ``bin_edges`` (list of ``n_bins + 1`` floats), ``bin_centers``,
-        ``mean_confidence``, ``accuracy``, ``count`` (each a list of length
-        ``n_bins``), ``n_bins`` (int), ``total`` (int sample count).
+    ReliabilityDiagram
+        See the :class:`ReliabilityDiagram` TypedDict for the exact key set
+        and field types.
 
     Raises
     ------
@@ -262,15 +278,15 @@ def reliability_diagram(
         for i in range(n_bins)
     ]
 
-    return {
-        "bin_edges": bin_edges,
-        "bin_centers": bin_centers,
-        "mean_confidence": mean_confidence,
-        "accuracy": accuracy,
-        "count": bin_count,
-        "n_bins": n_bins,
-        "total": len(items),
-    }
+    return ReliabilityDiagram(
+        bin_edges=bin_edges,
+        bin_centers=bin_centers,
+        mean_confidence=mean_confidence,
+        accuracy=accuracy,
+        count=bin_count,
+        n_bins=n_bins,
+        total=len(items),
+    )
 
 
 def _partition_by_error(
@@ -505,14 +521,20 @@ def _direction_arrow(metrics: dict[str, Any]) -> str:
     overall observed accuracy (both weighted by bin count).  Returns
     ``">>"`` for overconfident, ``"<<"`` for underconfident, ``"="`` when
     within a small epsilon, and ``"-"`` when there is no support.
+
+    Callers in this module always pass a metrics dict whose
+    ``reliability_bins`` value was produced by :func:`reliability_diagram`,
+    so the structural keys are guaranteed present.  The ``total == 0``
+    branch handles the degenerate case where a caller hand-builds a
+    ``ReliabilityDiagram`` with no samples.
     """
-    rb = metrics.get("reliability_bins") or {}
-    counts = rb.get("count") or []
-    total = sum(counts)
+    rb: ReliabilityDiagram = metrics["reliability_bins"]
+    total = rb["total"]
     if not total:
         return "-"
-    mean_conf = rb.get("mean_confidence") or []
-    acc = rb.get("accuracy") or []
+    counts = rb["count"]
+    mean_conf = rb["mean_confidence"]
+    acc = rb["accuracy"]
     weighted_conf = sum(c * n for c, n in zip(mean_conf, counts)) / total
     weighted_acc = sum(a * n for a, n in zip(acc, counts)) / total
     diff = weighted_conf - weighted_acc
