@@ -4,7 +4,7 @@ Steps:
 
 1. Check what annotation files exist (data/heuristic.json, data/llm.json, data/annotations_clean.json, or the file specified in $ARGUMENTS).
 2. If multiple exist, use the most complete one (prefer ensemble > llm > heuristic).
-3. Run: `agent-diagnostics report --annotations <best_file> --output data/report/`
+3. Run: `agent-diagnostics report --annotations <best_file> --output-dir data/report/`
 4. Show key findings from the generated report (read the markdown output).
 5. Also run summary queries:
    ```
