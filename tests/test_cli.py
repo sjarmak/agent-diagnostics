@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import stat
 import subprocess
@@ -1440,3 +1441,102 @@ class TestReportOutputFlagNormalisation:
         )
         cmd_report(args)
         assert (out_dir / "reliability_report.md").is_file()
+
+
+# ---------------------------------------------------------------------------
+# _resolve_log_level — agent-diagnostics-00h
+# ---------------------------------------------------------------------------
+
+
+class TestResolveLogLevel:
+    """Resolve CLI verbosity flags + AGENT_DIAGNOSTICS_LOG_LEVEL env into a
+    numeric logging level.
+
+    Also pins the implementation to the canonical 3.11+
+    ``logging.getLevelNamesMapping()`` API rather than the legacy
+    ``logging.getLevelName(str)`` name→int form (documented as a
+    historical mistake). No runtime DeprecationWarning fires on current
+    Python versions, but the mapping API is the forward-compatible path.
+
+    Precedence contract (from the function's docstring):
+        -q  >  -v  >  AGENT_DIAGNOSTICS_LOG_LEVEL  >  INFO
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_env(self, monkeypatch):
+        monkeypatch.delenv("AGENT_DIAGNOSTICS_LOG_LEVEL", raising=False)
+
+    def test_quiet_wins_over_env(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "DEBUG")
+        assert _resolve_log_level(verbose=0, quiet=True) == logging.WARNING
+
+    def test_verbose_wins_over_env(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "ERROR")
+        assert _resolve_log_level(verbose=1, quiet=False) == logging.DEBUG
+
+    def test_valid_env_name(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "WARNING")
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.WARNING
+
+    def test_valid_env_name_lowercase_is_accepted(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        # The function uppercases env before lookup.
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "error")
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.ERROR
+
+    def test_unknown_env_falls_back_to_info(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "CHATTY")
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.INFO
+
+    def test_sub_debug_env_falls_back_to_info(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        # NOTSET (=0) is below DEBUG and should be rejected per the docstring
+        # ("Unknown or sub-DEBUG env values fall back to INFO").
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "NOTSET")
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.INFO
+
+    def test_empty_env_falls_back_to_info(self, monkeypatch):
+        from agent_diagnostics.cli import _resolve_log_level
+
+        # monkeypatch accepted for consistency with the rest of the class;
+        # _clear_env (autouse) guarantees the env var is absent.
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.INFO
+
+    def test_does_not_call_legacy_getLevelName_when_mapping_available(
+        self, monkeypatch
+    ):
+        """On Python 3.11+ (where getLevelNamesMapping() exists) the
+        resolver must prefer that API over the legacy
+        ``logging.getLevelName(str)`` name→int lookup.
+        """
+        from agent_diagnostics.cli import _resolve_log_level
+
+        if not hasattr(logging, "getLevelNamesMapping"):
+            pytest.skip(
+                "getLevelNamesMapping requires Python 3.11+; "
+                "legacy getLevelName() path is the only option on 3.10"
+            )
+
+        # Force the legacy API to explode if called — the resolver must
+        # not touch it when the mapping API is available. getattr lookup
+        # happens at call time so this monkeypatch is sufficient.
+        def _should_not_be_called(*_args, **_kwargs):
+            raise AssertionError(
+                "_resolve_log_level called legacy logging.getLevelName() "
+                "despite getLevelNamesMapping() being available"
+            )
+
+        monkeypatch.setattr(logging, "getLevelName", _should_not_be_called)
+        monkeypatch.setenv("AGENT_DIAGNOSTICS_LOG_LEVEL", "WARNING")
+
+        assert _resolve_log_level(verbose=0, quiet=False) == logging.WARNING

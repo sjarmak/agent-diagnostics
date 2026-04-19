@@ -986,6 +986,27 @@ def cmd_validate(args):
 _LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
 
 
+def _lookup_level_by_name(name: str) -> int | None:
+    """Return the numeric logging level for *name*, or ``None`` if unregistered.
+
+    Note that ``NOTSET`` is a registered name and returns ``0`` — callers that
+    want to reject sub-DEBUG levels must gate on ``value >= logging.DEBUG``
+    themselves; ``None`` here means "no such name", not "unusable value".
+
+    Prefers :func:`logging.getLevelNamesMapping` (added in Python 3.11) over
+    the legacy ``logging.getLevelName(str)`` path, which is documented as
+    a historical mistake. Falls back to ``getLevelName`` on 3.10 so the
+    module still imports there.
+    """
+    mapping_fn = getattr(logging, "getLevelNamesMapping", None)
+    if mapping_fn is not None:
+        return mapping_fn().get(name)
+    # Python 3.10 fallback. getLevelName returns the input string unchanged
+    # for unknown names, so guard with isinstance to only accept ints.
+    legacy = logging.getLevelName(name)
+    return legacy if isinstance(legacy, int) else None
+
+
 def _resolve_log_level(verbose: int, quiet: bool) -> int:
     """Resolve the effective root log level from CLI flags and environment.
 
@@ -1000,8 +1021,8 @@ def _resolve_log_level(verbose: int, quiet: bool) -> int:
         return logging.DEBUG
     env = os.environ.get("AGENT_DIAGNOSTICS_LOG_LEVEL", "").strip().upper()
     if env:
-        numeric = logging.getLevelName(env)
-        if isinstance(numeric, int) and numeric >= logging.DEBUG:
+        numeric = _lookup_level_by_name(env)
+        if numeric is not None and numeric >= logging.DEBUG:
             return numeric
     return logging.INFO
 
