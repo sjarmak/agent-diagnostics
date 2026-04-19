@@ -7,7 +7,6 @@ import json
 import logging
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from agent_diagnostics.annotation_cache import DEFAULT_CACHE_DIR, cache_key
@@ -249,7 +248,7 @@ def annotate_batch_claude_code(
             idx, result = await coro
             results[idx] = result
             done += 1
-            print(f"  [{done}/{len(trials)}] annotated", file=sys.stderr)
+            logger.info("  [%d/%d] annotated", done, len(trials))
         return results
 
     return asyncio.run(_run_all())
