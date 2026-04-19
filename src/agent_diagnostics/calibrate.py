@@ -60,17 +60,31 @@ def _load_annotations(
 
     Returns ``(categories_by_trial, status_by_trial, confidences_by_trial)``.
 
-    Handles both annotation document format (with top-level 'annotations' key)
-    and raw list format.  ``status_by_trial`` defaults to ``"ok"`` for legacy
+    Accepts three input shapes:
+
+    - ``.jsonl``: one annotation record per line (as emitted by
+      ``observatory annotate --output X.jsonl``).
+    - ``.json`` document: ``{"annotations": [...], "schema_version": ...}``.
+    - ``.json`` bare list: ``[{...}, {...}]`` (legacy tooling shape).
+
+    ``status_by_trial`` defaults to ``"ok"`` for legacy
     ``observatory-annotation-v1`` rows that lack the field.
     ``confidences_by_trial[trial][category_name]`` is the emitted confidence
     scalar (falls back to ``1.0`` when a category is listed without one — the
     legacy heuristic annotator did not always emit confidences).
     """
-    with open(path) as f:
-        data = json.load(f)
-
-    annotations = data.get("annotations", data) if isinstance(data, dict) else data
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        annotations: list[dict[str, Any]] = []
+        with open(path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                annotations.append(json.loads(line))
+    else:
+        with open(path) as f:
+            data = json.load(f)
+        annotations = data.get("annotations", data) if isinstance(data, dict) else data
     if not isinstance(annotations, list):
         raise ValueError(f"Expected annotations list, got {type(annotations).__name__}")
 

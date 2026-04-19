@@ -1250,3 +1250,63 @@ class TestReportAcceptsJSONL:
         js = report_dir / "reliability_report.json"
         assert md.is_file() and js.is_file()
         assert "Total annotated trials" in md.read_text()
+
+
+class TestCalibrateAcceptsJSONL:
+    """calibrate._load_annotations must accept the same set of input shapes
+    as cmd_report so that annotate's JSONL output can be fed directly to
+    `observatory calibrate --predictor X.jsonl`. Surfaced by the 0.8.0
+    PyPI clean-room smoke: the xo1 fix to cmd_report left calibrate on
+    the old document-only contract."""
+
+    def test_calibrate_consumes_jsonl_predictor(self, tmp_path):
+        from agent_diagnostics.cli import cmd_annotate, cmd_calibrate
+
+        # Build a tiny golden corpus with one trial matching our signal.
+        golden_dir = tmp_path / "golden"
+        golden_dir.mkdir()
+        (golden_dir / "t_ok").mkdir()
+        (golden_dir / "t_ok" / "expected_annotations.json").write_text(
+            json.dumps(
+                {"categories": [{"name": "premature_termination", "confidence": 0.8}]}
+            )
+        )
+
+        # Annotate one signal whose trial_path matches the golden corpus
+        # dir name, so shared_trials will be > 0.
+        signals_path = tmp_path / "signals.jsonl"
+        signals_path.write_text(
+            json.dumps(
+                {
+                    "task_id": "t_ok",
+                    "trial_path": "t_ok",
+                    "reward": 0.5,
+                    "passed": True,
+                    "agent_name": "a",
+                    "total_turns": 0,
+                    "trajectory_length": 0,
+                }
+            )
+            + "\n"
+        )
+        jsonl_predictor = tmp_path / "predictor.jsonl"
+        cmd_annotate(
+            argparse.Namespace(
+                signals=str(signals_path), output=str(jsonl_predictor)
+            )
+        )
+
+        cmd_calibrate(
+            argparse.Namespace(
+                predictor=str(jsonl_predictor),
+                reference=None,
+                golden_dir=str(golden_dir),
+                output_dir=str(tmp_path / "out"),
+            )
+        )
+
+        cal = json.loads((tmp_path / "out" / "calibration.json").read_text())
+        assert cal["shared_trials"] == 1, (
+            f"expected shared_trials=1 on matching fixture, got "
+            f"{cal['shared_trials']}"
+        )
