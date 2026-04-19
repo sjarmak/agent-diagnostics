@@ -9,3 +9,10 @@
 # on entropy. It is a public git commit SHA from NodeBB/NodeBB@8fd8079a,
 # not a Sourcegraph access token.
 tests/fixtures/golden_corpus/618b26fe2482/trajectory.json:sourcegraph-access-token:22
+
+# A pytest method name describing a test rename in a PRD-build planning
+# artifact: "test_returns_trial_signals_with_26_keys -> test_returns_
+# trial_signals_with_27_keys". gitleaks' generic-api-key rule flags it
+# on entropy (3.77) because of the long underscore-delimited identifier.
+# Verified via git show: documentation of a test rename, no secret.
+ebec0ed985d1b9461fc392ec94584d515299a318:.claude/prd-build-artifacts/test-unit-manifest-integration.md:generic-api-key:41
