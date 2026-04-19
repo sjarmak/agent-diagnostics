@@ -768,7 +768,11 @@ def cmd_calibrate(args):
     tmp_dir: tempfile.TemporaryDirectory | None = None
     reference_path: Path
     if args.golden_dir:
-        golden_doc = _collect_golden_corpus(Path(args.golden_dir))
+        golden_dir_path = Path(args.golden_dir)
+        if not golden_dir_path.is_dir():
+            logger.error("golden corpus directory not found: %s", golden_dir_path)
+            sys.exit(1)
+        golden_doc = _collect_golden_corpus(golden_dir_path)
         tmp_dir = tempfile.TemporaryDirectory(prefix="observatory-calibrate-")
         os.chmod(tmp_dir.name, 0o700)
         reference_path = Path(tmp_dir.name) / "reference.json"

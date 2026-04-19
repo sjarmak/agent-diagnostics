@@ -1039,3 +1039,29 @@ class TestCalibrateGoldenDirPermissions:
         assert captured["dir_mode"] == 0o700, (
             f"temp dir mode should be 0o700, got {oct(captured['dir_mode'])}"
         )
+
+    def test_golden_dir_missing_path_exits_cleanly(self, tmp_path, caplog):
+        """--golden-dir pointing at a nonexistent path must log and exit(1),
+        not raise an unhandled FileNotFoundError from _collect_golden_corpus."""
+        import logging
+
+        from agent_diagnostics.cli import cmd_calibrate
+
+        predictor_path = tmp_path / "predictor.json"
+        predictor_path.write_text(json.dumps({"annotations": []}))
+
+        args = argparse.Namespace(
+            predictor=str(predictor_path),
+            reference=None,
+            golden_dir=str(tmp_path / "does_not_exist"),
+            output_dir=str(tmp_path / "out"),
+        )
+        with caplog.at_level(logging.ERROR, logger="agent_diagnostics.cli"):
+            with pytest.raises(SystemExit) as exc:
+                cmd_calibrate(args)
+
+        assert exc.value.code == 1
+        assert any(
+            "golden" in rec.message.lower() and "not found" in rec.message.lower()
+            for rec in caplog.records
+        ), f"expected clean error log, got: {[r.message for r in caplog.records]}"
