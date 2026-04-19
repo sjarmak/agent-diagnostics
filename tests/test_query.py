@@ -199,10 +199,59 @@ def test_unreadable_parquet_skipped(tmp_path: Path, caplog):
         rows = run_query("SELECT count(*) AS n FROM signals", data_dir=tmp_path)
 
     assert rows == [{"n": 1}]
-    # A warning about the skipped table should have been logged.
-    assert any(
-        "annotations" in record.getMessage() for record in caplog.records
-    ), "expected a warning mentioning the skipped annotations table"
+    # The zero-column stub case should log at WARNING (known issue path),
+    # not ERROR — and the log must identify the skipped table.
+    skip_records = [
+        r for r in caplog.records if "annotations" in r.getMessage()
+    ]
+    assert skip_records, "expected a log entry mentioning the skipped annotations table"
+    assert any(r.levelno == logging.WARNING for r in skip_records), (
+        "zero-column stub should log at WARNING, not ERROR"
+    )
+
+
+def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
+    tmp_path: Path, caplog
+):
+    """Corrupt (non-stub) Parquet must log ERROR and fall through to JSONL.
+
+    The zero-column-stub case is an expected degraded mode (WARNING).
+    Any other unreadable-Parquet case is unexpected data loss and must
+    surface loudly so it can't be missed in log review.
+    """
+    import logging
+
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    # Write a corrupt annotations.parquet (truncated garbage).
+    corrupt_path = export_dir / "annotations.parquet"
+    corrupt_path.write_bytes(b"not-a-parquet-file")
+
+    # And a JSONL fallback with real data.
+    jsonl_path = tmp_path / "annotations.jsonl"
+    jsonl_path.write_text(
+        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
+    )
+
+    from agent_diagnostics.query import run_query
+
+    with caplog.at_level(logging.ERROR, logger="agent_diagnostics.query"):
+        rows = run_query(
+            "SELECT count(*) AS n FROM annotations", data_dir=tmp_path
+        )
+
+    # Fallback to JSONL must have happened.
+    assert rows == [{"n": 1}]
+    # And the unexpected-corruption case should have logged at ERROR.
+    error_records = [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
+    ]
+    assert error_records, (
+        "expected ERROR-level log for unexpected corrupt Parquet"
+    )
 
 
 # ---------------------------------------------------------------------------

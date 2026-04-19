@@ -18,12 +18,22 @@ logger = logging.getLogger(__name__)
 TABLE_NAMES: tuple[str, ...] = ("signals", "annotations", "manifests")
 
 
+_ZERO_COLUMN_PARQUET_MARKER = "at least one non-root column"
+
+
 def _register_parquet_view(con: Any, name: str, parquet_path: Path) -> bool:
     """Try to register *parquet_path* as DuckDB view *name*.
 
     Returns ``True`` on success, ``False`` if the file cannot be read.
-    A warning is logged on failure so a single malformed file (e.g. a
-    schemaless zero-column stub) does not break unrelated queries.
+
+    Failures are split by severity so we don't silently swallow data loss:
+
+    * Known zero-column stubs (shipped by older versions of ``export.py``)
+      log at WARNING — this is an expected degraded mode, fall through to
+      the JSONL source if present.
+    * Any other ``duckdb.Error`` (permissions, corruption, unsupported
+      format) logs at ERROR so the skip is loud. Caller still receives
+      ``False`` so the query can degrade rather than crash mid-pipeline.
     """
     import duckdb
 
@@ -34,12 +44,21 @@ def _register_parquet_view(con: Any, name: str, parquet_path: Path) -> bool:
         )
         return True
     except duckdb.Error as exc:
-        logger.warning(
-            "Skipping unreadable Parquet for table %r at %s: %s",
-            name,
-            parquet_path,
-            exc,
-        )
+        if _ZERO_COLUMN_PARQUET_MARKER in str(exc):
+            logger.warning(
+                "Skipping zero-column Parquet stub for table %r at %s "
+                "(known issue, falling through to JSONL if present)",
+                name,
+                parquet_path,
+            )
+        else:
+            logger.error(
+                "Unreadable Parquet for table %r at %s: %s — skipping; "
+                "downstream queries may return stale or empty results",
+                name,
+                parquet_path,
+                exc,
+            )
         return False
 
 
@@ -48,11 +67,12 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
 
     For each table name in :data:`TABLE_NAMES`:
 
-    1. If ``data_dir/export/<name>.parquet`` exists, register it via
-       ``read_parquet()``.
-    2. Otherwise, if ``data_dir/<name>.jsonl`` exists, register it via
-       ``read_json_auto()``.
-    3. If neither file is found, the table is silently skipped.
+    1. If ``data_dir/export/<name>.parquet`` exists and is readable, register
+       it via ``read_parquet()``.
+    2. If the Parquet file is absent or unreadable (e.g. a zero-column stub
+       or a corrupted file), fall through to ``data_dir/<name>.jsonl`` via
+       ``read_json_auto()`` if present.
+    3. If neither file is available, the table is skipped.
 
     Parameters
     ----------

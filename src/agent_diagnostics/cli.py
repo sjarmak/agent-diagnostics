@@ -291,12 +291,15 @@ def cmd_report(args):
     output_dir_value = getattr(args, "output_dir", None)
     legacy_output = getattr(args, "output", None)
     if legacy_output is not None and output_dir_value is None:
-        warnings.warn(
+        _deprecation_msg = (
             "`observatory report --output` is deprecated; use --output-dir "
-            "instead. The --output alias will be removed in 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "instead. The --output alias will be removed in 1.0."
         )
+        warnings.warn(_deprecation_msg, DeprecationWarning, stacklevel=2)
+        # Python silences DeprecationWarning by default outside __main__, so
+        # also log it via the CLI's configured logger — that path is visible
+        # regardless of the user's warning filter.
+        logger.warning(_deprecation_msg)
         output_dir_value = legacy_output
     if output_dir_value is None:
         logger.error("--output-dir is required")
