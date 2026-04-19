@@ -31,18 +31,24 @@ silent-failure empties from genuine no-categories rows.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 
 def _load_annotations(
     path: str | Path,
-) -> tuple[dict[str, set[str]], dict[str, str]]:
-    """Load an annotation file and return ``(categories_by_trial, status_by_trial)``.
+) -> tuple[dict[str, set[str]], dict[str, str], dict[str, dict[str, float]]]:
+    """Load an annotation file.
+
+    Returns ``(categories_by_trial, status_by_trial, confidences_by_trial)``.
 
     Handles both annotation document format (with top-level 'annotations' key)
     and raw list format.  ``status_by_trial`` defaults to ``"ok"`` for legacy
     ``observatory-annotation-v1`` rows that lack the field.
+    ``confidences_by_trial[trial][category_name]`` is the emitted confidence
+    scalar (falls back to ``1.0`` when a category is listed without one — the
+    legacy heuristic annotator did not always emit confidences).
     """
     with open(path) as f:
         data = json.load(f)
@@ -53,15 +59,218 @@ def _load_annotations(
 
     cats_by_trial: dict[str, set[str]] = {}
     status_by_trial: dict[str, str] = {}
+    confidences_by_trial: dict[str, dict[str, float]] = {}
     for ann in annotations:
         trial = ann.get("trial_path", "")
         if not trial:
             continue
-        cats_by_trial[trial] = {
-            c["name"] for c in ann.get("categories", []) if "name" in c
-        }
+        cats: set[str] = set()
+        confs: dict[str, float] = {}
+        for c in ann.get("categories", []):
+            name = c.get("name")
+            if not name:
+                continue
+            cats.add(name)
+            raw_conf = c.get("confidence")
+            # Missing/None confidence defaults to 1.0 (legacy assignments
+            # predating confidence emission are treated as full-confidence).
+            try:
+                confs[name] = float(raw_conf) if raw_conf is not None else 1.0
+            except (TypeError, ValueError):
+                confs[name] = 1.0
+        cats_by_trial[trial] = cats
+        confidences_by_trial[trial] = confs
         status_by_trial[trial] = ann.get("annotation_result_status", "ok")
-    return cats_by_trial, status_by_trial
+    return cats_by_trial, status_by_trial, confidences_by_trial
+
+
+# ---------------------------------------------------------------------------
+# Calibration scoring rules (ECE, Brier, reliability diagrams)
+# ---------------------------------------------------------------------------
+
+
+def _validate_pairs(
+    pairs: Iterable[tuple[float, int]],
+) -> list[tuple[float, int]]:
+    """Eagerly consume *pairs* and validate each ``(confidence, observed)``.
+
+    Raises
+    ------
+    ValueError
+        If *pairs* is empty, any confidence is outside ``[0, 1]``, or any
+        observed label is not ``0`` or ``1``.
+    """
+    items = list(pairs)
+    if not items:
+        raise ValueError("empty input: no predictions to score")
+    for conf, obs in items:
+        if not (0.0 <= conf <= 1.0):
+            raise ValueError(
+                f"confidence must be in [0, 1], got {conf!r}"
+            )
+        if obs not in (0, 1):
+            raise ValueError(f"observed label must be 0 or 1, got {obs!r}")
+    return items
+
+
+def _bin_pairs(
+    items: list[tuple[float, int]],
+    n_bins: int,
+) -> tuple[list[float], list[int], list[int]]:
+    """Bucket validated pairs into ``n_bins`` equal-width bins on ``[0, 1]``.
+
+    Returns ``(bin_conf_sum, bin_correct_sum, bin_count)`` — three parallel
+    lists of length ``n_bins``.  The upper edge ``1.0`` is included in the
+    last bin; floating-point drift near edges is clamped defensively.
+    """
+    bin_conf_sum = [0.0] * n_bins
+    bin_correct_sum = [0] * n_bins
+    bin_count = [0] * n_bins
+    for conf, obs in items:
+        # Multiply rather than floor-divide: `0.3 // 0.1` returns 2.0 under
+        # IEEE-754 because 0.3 is stored as 0.2999…, which would silently
+        # misassign common LLM confidences (0.3, 0.7, 0.9) to the wrong bin.
+        idx = min(int(conf * n_bins), n_bins - 1)
+        bin_conf_sum[idx] += conf
+        bin_correct_sum[idx] += obs
+        bin_count[idx] += 1
+    return bin_conf_sum, bin_correct_sum, bin_count
+
+
+def compute_ece(
+    pairs: Iterable[tuple[float, int]],
+    *,
+    n_bins: int = 10,
+) -> float:
+    """Expected Calibration Error over equal-width bins on ``[0, 1]``.
+
+    ECE = sum_b (|bin_b| / N) * |mean_confidence_b - accuracy_b|
+
+    Bins are right-exclusive with the upper edge at 1.0 included in the last
+    bin.  Empty bins contribute 0.
+
+    Parameters
+    ----------
+    pairs
+        Iterable of ``(confidence, observed)`` where ``observed ∈ {0, 1}``.
+    n_bins
+        Number of equal-width bins on ``[0, 1]``.  Must be positive.
+
+    Returns
+    -------
+    float
+        ECE in ``[0, 1]``.
+
+    Raises
+    ------
+    ValueError
+        If the iterable is empty, any confidence is outside ``[0, 1]``, any
+        label is non-binary, or ``n_bins <= 0``.
+    """
+    if n_bins <= 0:
+        raise ValueError(f"n_bins must be positive, got {n_bins}")
+
+    items = _validate_pairs(pairs)
+    total = len(items)
+    bin_conf_sum, bin_correct_sum, bin_count = _bin_pairs(items, n_bins)
+
+    ece = 0.0
+    for i in range(n_bins):
+        n = bin_count[i]
+        if n == 0:
+            continue
+        mean_conf = bin_conf_sum[i] / n
+        accuracy = bin_correct_sum[i] / n
+        ece += (n / total) * abs(mean_conf - accuracy)
+    return ece
+
+
+def compute_brier(pairs: Iterable[tuple[float, int]]) -> float:
+    """Brier score: mean squared error between confidence and binary outcome.
+
+    Brier = mean((confidence - observed)^2)
+
+    Parameters
+    ----------
+    pairs
+        Iterable of ``(confidence, observed)`` where ``observed ∈ {0, 1}``.
+
+    Returns
+    -------
+    float
+        Brier score in ``[0, 1]`` (lower is better).
+
+    Raises
+    ------
+    ValueError
+        If the iterable is empty, any confidence is outside ``[0, 1]``, or any
+        label is non-binary.
+    """
+    items = _validate_pairs(pairs)
+    total = len(items)
+    return sum((conf - obs) ** 2 for conf, obs in items) / total
+
+
+def reliability_diagram(
+    pairs: Iterable[tuple[float, int]],
+    *,
+    n_bins: int = 10,
+) -> dict[str, Any]:
+    """Per-bin confidence vs observed-accuracy breakdown for plotting.
+
+    Bins are equal-width on ``[0, 1]``; the upper edge (1.0) is included in
+    the last bin.  Empty bins report ``count = 0`` and zero for both
+    ``mean_confidence`` and ``accuracy``.
+
+    Parameters
+    ----------
+    pairs
+        Iterable of ``(confidence, observed)`` where ``observed ∈ {0, 1}``.
+    n_bins
+        Number of equal-width bins on ``[0, 1]``.  Must be positive.
+
+    Returns
+    -------
+    dict
+        Keys: ``bin_edges`` (list of ``n_bins + 1`` floats), ``bin_centers``,
+        ``mean_confidence``, ``accuracy``, ``count`` (each a list of length
+        ``n_bins``), ``n_bins`` (int), ``total`` (int sample count).
+
+    Raises
+    ------
+    ValueError
+        Same as :func:`compute_ece`.
+    """
+    if n_bins <= 0:
+        raise ValueError(f"n_bins must be positive, got {n_bins}")
+
+    items = _validate_pairs(pairs)
+    bin_width = 1.0 / n_bins
+
+    bin_edges = [i * bin_width for i in range(n_bins + 1)]
+    bin_edges[-1] = 1.0  # lock the top edge to avoid float drift
+    bin_centers = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(n_bins)]
+
+    bin_conf_sum, bin_correct_sum, bin_count = _bin_pairs(items, n_bins)
+
+    mean_confidence = [
+        (bin_conf_sum[i] / bin_count[i]) if bin_count[i] else 0.0
+        for i in range(n_bins)
+    ]
+    accuracy = [
+        (bin_correct_sum[i] / bin_count[i]) if bin_count[i] else 0.0
+        for i in range(n_bins)
+    ]
+
+    return {
+        "bin_edges": bin_edges,
+        "bin_centers": bin_centers,
+        "mean_confidence": mean_confidence,
+        "accuracy": accuracy,
+        "count": bin_count,
+        "n_bins": n_bins,
+        "total": len(items),
+    }
 
 
 def _partition_by_error(
@@ -109,14 +318,18 @@ def compare_annotations(
         Summary with keys:
 
         - ``shared_trials``: number of trials present in both files
-        - ``categories``: dict mapping category name to metrics dict
-          (``true_positive``, ``false_positive``, ``false_negative``,
-          ``precision``, ``recall``, ``f1``)
+        - ``categories``: dict mapping category name to metrics dict with
+          agreement fields (``true_positive``, ``false_positive``,
+          ``false_negative``, ``precision``, ``recall``, ``f1``) and
+          calibration fields (``support``, ``ece``, ``brier``,
+          ``reliability_bins``).  Calibration treats the heuristic's
+          emitted confidence as the prediction (0.0 when the category is
+          absent) and the LLM's presence label as the binary observation.
         - ``macro_avg``: macro-averaged precision, recall, f1 across
           categories with at least one TP+FP+FN
     """
-    heuristic, heuristic_status = _load_annotations(heuristic_file)
-    llm, llm_status = _load_annotations(llm_file)
+    heuristic, heuristic_status, heuristic_confs = _load_annotations(heuristic_file)
+    llm, llm_status, _llm_confs = _load_annotations(llm_file)
 
     shared_all = set(heuristic.keys()) & set(llm.keys())
 
@@ -133,10 +346,14 @@ def compare_annotations(
         all_cats |= heuristic[trial]
         all_cats |= llm[trial]
 
-    # Compute per-category TP / FP / FN
+    # Compute per-category TP / FP / FN and calibration metrics.  Pairs are
+    # built over the non-error shared subset: prediction = heuristic confidence
+    # (or 0.0 when the category is absent); reference label = 1 iff LLM
+    # assigns the category.
     category_metrics: dict[str, dict[str, Any]] = {}
     for cat in sorted(all_cats):
         tp = fp = fn = 0
+        pairs: list[tuple[float, int]] = []
         for trial in shared:
             in_h = cat in heuristic[trial]
             in_l = cat in llm[trial]
@@ -146,6 +363,11 @@ def compare_annotations(
                 fp += 1
             elif not in_h and in_l:
                 fn += 1
+            conf = heuristic_confs.get(trial, {}).get(cat, 0.0)
+            # Guard against pathological inputs (out-of-range confidences
+            # in upstream files) — clamp to [0, 1] so scoring never raises.
+            conf = max(0.0, min(1.0, conf))
+            pairs.append((conf, 1 if in_l else 0))
 
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
@@ -155,6 +377,13 @@ def compare_annotations(
             else 0.0
         )
 
+        # ``all_cats`` is built from the shared trials, so every category
+        # reaches this point with at least one paired observation.
+        ece = compute_ece(pairs, n_bins=10)
+        brier = compute_brier(pairs)
+        reliability = reliability_diagram(pairs, n_bins=10)
+        support = len(pairs)
+
         category_metrics[cat] = {
             "true_positive": tp,
             "false_positive": fp,
@@ -162,6 +391,10 @@ def compare_annotations(
             "precision": round(precision, 4),
             "recall": round(recall, 4),
             "f1": round(f1, 4),
+            "support": support,
+            "ece": round(ece, 4),
+            "brier": round(brier, 4),
+            "reliability_bins": reliability,
         }
 
     # Macro average over categories that had any signal
@@ -236,7 +469,56 @@ def format_markdown(summary: dict[str, Any]) -> str:
         f"| **{macro['recall']:.2f}** | **{macro['f1']:.2f}** |"
     )
 
+    # Calibration section (ECE / Brier / direction of miscalibration).  Only
+    # emitted when at least one category carries the new fields — this keeps
+    # the report lean when callers pass a legacy summary dict that predates
+    # the calibration extension.
+    has_calibration = any("ece" in m for m in cats.values())
+    if has_calibration:
+        lines.append("")
+        lines.append("### Calibration")
+        lines.append("")
+        lines.append(
+            "Direction: arrow points from mean confidence toward observed "
+            "accuracy; >> means overconfident, << means underconfident, "
+            "= means well calibrated."
+        )
+        lines.append("")
+        lines.append("| Category | Support | ECE | Brier | Direction |")
+        lines.append("|----------|--------:|----:|------:|:---------:|")
+        for name in sorted(cats, key=lambda n: (-cats[n].get("ece", 0.0), n)):
+            m = cats[name]
+            if "ece" not in m:
+                continue
+            lines.append(
+                f"| {name} | {m.get('support', 0)} | {m['ece']:.3f} "
+                f"| {m['brier']:.3f} | {_direction_arrow(m)} |"
+            )
+
     return "\n".join(lines) + "\n"
+
+
+def _direction_arrow(metrics: dict[str, Any]) -> str:
+    """Render a compact text indicator of miscalibration direction.
+
+    Compares the overall mean confidence in the reliability bins to the
+    overall observed accuracy (both weighted by bin count).  Returns
+    ``">>"`` for overconfident, ``"<<"`` for underconfident, ``"="`` when
+    within a small epsilon, and ``"-"`` when there is no support.
+    """
+    rb = metrics.get("reliability_bins") or {}
+    counts = rb.get("count") or []
+    total = sum(counts)
+    if not total:
+        return "-"
+    mean_conf = rb.get("mean_confidence") or []
+    acc = rb.get("accuracy") or []
+    weighted_conf = sum(c * n for c, n in zip(mean_conf, counts)) / total
+    weighted_acc = sum(a * n for a, n in zip(acc, counts)) / total
+    diff = weighted_conf - weighted_acc
+    if abs(diff) < 0.01:
+        return "="
+    return ">>" if diff > 0 else "<<"
 
 
 # ---------------------------------------------------------------------------
@@ -332,8 +614,8 @@ def compare_cross_model(
           below the threshold
         - ``macro_kappa``: average kappa across all categories with signal
     """
-    model_a, model_a_status = _load_annotations(model_a_file)
-    model_b, model_b_status = _load_annotations(model_b_file)
+    model_a, model_a_status, _ = _load_annotations(model_a_file)
+    model_b, model_b_status, _ = _load_annotations(model_b_file)
 
     shared_all = set(model_a.keys()) & set(model_b.keys())
     shared_set, a_error_count, b_error_count = _partition_by_error(

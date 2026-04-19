@@ -235,12 +235,66 @@ agent-diagnostics train            Train per-category classifiers
 agent-diagnostics predict          Predict with trained classifier
 agent-diagnostics ensemble         Two-tier ensemble annotation
 agent-diagnostics report           Generate Markdown + JSON report
+agent-diagnostics calibrate        ECE, Brier, reliability diagrams vs a reference
 agent-diagnostics validate         Validate annotations against schema
 agent-diagnostics query            Run SQL against the dataset (DuckDB)
 agent-diagnostics export           Export to Parquet with MANIFEST.json
 agent-diagnostics manifest refresh Rewrite manifests.jsonl
 agent-diagnostics db schema        Inspect table schemas
 ```
+
+## Calibration metrics
+
+Calibration asks a different question than agreement: not *do the annotators
+pick the same categories?* but *when the annotator says a category is present
+with confidence 0.8, is it present 80% of the time?*  Three proper scoring
+rules are reported by `agent-diagnostics calibrate`:
+
+- **Expected Calibration Error (ECE)** — `[0, 1]`, lower is better.  Predictions
+  are bucketed into equal-width bins on `[0, 1]` (default 10).  For each bin,
+  we compute the gap between the mean confidence and the observed accuracy;
+  ECE is the sample-size-weighted average of those gaps.  An ECE of 0.0 means
+  the confidences match empirical frequency exactly.  An ECE of 0.49 means
+  the model's confidences are off by roughly 49 percentage points on average.
+- **Brier score** — `[0, 1]`, lower is better.  Mean squared error between
+  emitted confidence and the binary outcome.  Unlike ECE, Brier penalises
+  individual-sample error (not just per-bin averages), so it disambiguates
+  "overconfident on half, underconfident on the other half" from "well
+  calibrated overall".
+- **Reliability diagram** — per-bin counts, mean confidence, and observed
+  accuracy.  Serialised as JSON for downstream plotting.  A perfectly
+  calibrated annotator's diagram lies on the y = x diagonal.
+
+The Markdown report also includes a **direction arrow** (`>>` overconfident,
+`<<` underconfident, `=` well calibrated within 1pp).
+
+### How to run
+
+```bash
+agent-diagnostics calibrate \
+  --predictor data/heuristic.json \
+  --golden-dir tests/fixtures/golden_corpus/ \
+  --output-dir reports/calib/
+```
+
+`--predictor` is the annotation file whose emitted confidences are being
+scored.  `--reference` takes a second annotation file as ground truth, or
+`--golden-dir` composes the golden corpus's per-trial
+`expected_annotations.json` files into the reference.  Outputs are
+`calibration.md` and `calibration.json` in `--output-dir`.
+
+Calibration is only meaningful on predictors that emit per-category
+confidences.  Legacy `observatory-annotation-v1` files (produced before the
+annotator started emitting `confidence`) default every present category to
+`1.0` on read, which makes every assigned category look maximally
+overconfident.  Run the pipeline with the current LLM annotator to produce
+a `v2` file before interpreting the ECE / Brier output.
+
+### Scope
+
+These metrics *describe* how well calibrated the annotator's confidences are.
+They do not fix miscalibration — post-hoc calibration (temperature scaling,
+Platt, isotonic regression) is a separate concern and is not performed here.
 
 ## Contributing
 

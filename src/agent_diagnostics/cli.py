@@ -704,6 +704,120 @@ def cmd_pipeline_run(args):
         sys.exit(1)
 
 
+def cmd_calibrate(args):
+    """Compare two annotation files and emit calibration metrics.
+
+    Reference ("ground truth") comes from ``--reference``; predictor (with
+    emitted confidences) comes from ``--predictor``.  If ``--golden-dir`` is
+    supplied, the golden corpus is collected into an in-memory annotation
+    document and used as the reference.
+
+    Writes ``calibration.md`` and ``calibration.json`` under ``--output-dir``.
+    """
+    import tempfile
+
+    from agent_diagnostics.calibrate import compare_annotations, format_markdown
+
+    predictor_path = Path(args.predictor)
+    if not predictor_path.is_file():
+        print(
+            f"Error: predictor annotations not found: {predictor_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Reference: either a plain annotations file or the golden corpus dir.
+    # When the golden corpus is used, we materialise the composed document in
+    # an owner-only temp directory so that any category names don't land in a
+    # world-readable file.
+    tmp_dir: tempfile.TemporaryDirectory | None = None
+    reference_path: Path
+    if args.golden_dir:
+        golden_doc = _collect_golden_corpus(Path(args.golden_dir))
+        tmp_dir = tempfile.TemporaryDirectory(prefix="observatory-calibrate-")
+        reference_path = Path(tmp_dir.name) / "reference.json"
+        with open(reference_path, "w", encoding="utf-8") as f:
+            json.dump(golden_doc, f)
+    elif args.reference:
+        reference_path = Path(args.reference)
+        if not reference_path.is_file():
+            print(
+                f"Error: reference annotations not found: {reference_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        print(
+            "Error: provide --reference or --golden-dir for the label source",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        summary = compare_annotations(predictor_path, reference_path)
+    finally:
+        if tmp_dir is not None:
+            tmp_dir.cleanup()
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    md_path = output_dir / "calibration.md"
+    md_path.write_text(format_markdown(summary))
+
+    json_path = output_dir / "calibration.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, default=str)
+
+    print(
+        f"Calibration report: {md_path} (markdown), {json_path} (json). "
+        f"Shared trials: {summary.get('shared_trials', 0)}",
+        file=sys.stderr,
+    )
+
+
+def _collect_golden_corpus(dir_path: Path) -> dict[str, Any]:
+    """Compose per-trial ``expected_annotations.json`` files into one document.
+
+    Each subdirectory of *dir_path* is treated as a trial; its
+    ``expected_annotations.json`` contributes one annotation record using the
+    directory name as ``trial_path``.
+    """
+    if not dir_path.is_dir():
+        raise FileNotFoundError(f"golden corpus directory not found: {dir_path}")
+
+    annotations: list[dict[str, Any]] = []
+    for trial_dir in sorted(dir_path.iterdir()):
+        # Reject symlinks defensively: a symlinked trial dir could point
+        # outside `dir_path`, letting a malicious --golden-dir read
+        # arbitrary `expected_annotations.json` files from the filesystem.
+        # Path.is_dir(follow_symlinks=False) is Python 3.12+; use an
+        # explicit is_symlink() check for 3.10/3.11 compatibility.
+        if trial_dir.is_symlink() or not trial_dir.is_dir():
+            continue
+        ann_file = trial_dir / "expected_annotations.json"
+        if ann_file.is_symlink() or not ann_file.is_file():
+            continue
+        with open(ann_file, encoding="utf-8") as f:
+            data = json.load(f)
+        categories = [
+            {
+                "name": c.get("name", ""),
+                "confidence": c.get("confidence", 1.0),
+                "evidence": c.get("evidence", ""),
+            }
+            for c in data.get("categories", [])
+            if c.get("name")
+        ]
+        annotations.append(
+            {
+                "trial_path": trial_dir.name,
+                "categories": categories,
+            }
+        )
+    return {"annotations": annotations}
+
+
 def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
@@ -938,6 +1052,36 @@ def main():
         "--state", default=None, help="State JSON file for incremental mode"
     )
     p_ingest.set_defaults(func=cmd_ingest)
+
+    # calibrate
+    p_cal = subparsers.add_parser(
+        "calibrate",
+        help="Report ECE/Brier/reliability per category for a predictor vs reference",
+    )
+    p_cal.add_argument(
+        "--predictor",
+        required=True,
+        help="Annotation JSON whose categories carry emitted confidences "
+        "(typically the heuristic or LLM annotator output being scored)",
+    )
+    cal_ref_group = p_cal.add_mutually_exclusive_group(required=True)
+    cal_ref_group.add_argument(
+        "--reference",
+        default=None,
+        help="Ground-truth annotation JSON file (labels treated as observed)",
+    )
+    cal_ref_group.add_argument(
+        "--golden-dir",
+        default=None,
+        help="Golden corpus directory containing per-trial "
+        "expected_annotations.json files; used as the reference",
+    )
+    p_cal.add_argument(
+        "--output-dir",
+        required=True,
+        help="Output directory for calibration.md + calibration.json",
+    )
+    p_cal.set_defaults(func=cmd_calibrate)
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate annotation files")
