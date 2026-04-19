@@ -524,9 +524,15 @@ class TestCmdLlmAnnotate:
         signals_file = tmp_path / "signals.json"
         signals_file.write_text(json.dumps(signals))
 
+        from agent_diagnostics.types import AnnotationOk
+
         mock_taxonomy.return_value = {"version": "1.0", "categories": []}
         mock_annotate_batch.return_value = [
-            [{"name": "cat1", "confidence": 0.9, "evidence": "test"}]
+            AnnotationOk(
+                categories=(
+                    {"name": "cat1", "confidence": 0.9, "evidence": "test"},
+                )
+            )
         ]
 
         output = tmp_path / "out.json"
@@ -542,9 +548,16 @@ class TestCmdLlmAnnotate:
         mock_annotate_batch.assert_called_once()
         assert output.exists()
         data = json.loads(output.read_text())
-        assert data["schema_version"] == "observatory-annotation-v1"
+        assert data["schema_version"] == "observatory-annotation-v2"
         assert len(data["annotations"]) == 1
         assert data["annotations"][0]["task_id"] == "task1"
+        assert data["annotations"][0]["annotation_result_status"] == "ok"
+        assert data["annotation_summary"] == {
+            "ok": 1,
+            "no_categories": 0,
+            "error": 0,
+            "total": 1,
+        }
 
 
 # ---------------------------------------------------------------------------

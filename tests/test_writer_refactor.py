@@ -185,10 +185,20 @@ class TestCmdLlmAnnotateStore:
             agent_dir.mkdir(parents=True, exist_ok=True)
             (agent_dir / "trajectory.json").write_text("[]")
 
+        from agent_diagnostics.types import AnnotationOk
+
         mock_taxonomy.return_value = {"version": "3.0"}
         mock_batch.return_value = [
-            [{"name": "retrieval_failure", "confidence": 0.9, "evidence": "test"}],
-            [{"name": "query_churn", "confidence": 0.8, "evidence": "test2"}],
+            AnnotationOk(
+                categories=(
+                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "test"},
+                )
+            ),
+            AnnotationOk(
+                categories=(
+                    {"name": "query_churn", "confidence": 0.8, "evidence": "test2"},
+                )
+            ),
         ]
 
         signals_file = tmp_path / "signals.json"
@@ -585,8 +595,14 @@ class TestZeroDuplicatePKs:
             agent_dir.mkdir(parents=True, exist_ok=True)
             (agent_dir / "trajectory.json").write_text("[]")
 
+        from agent_diagnostics.types import AnnotationOk
+
         mock_llm_batch.return_value = [
-            [{"name": "retrieval_failure", "confidence": 0.85, "evidence": "llm"}]
+            AnnotationOk(
+                categories=(
+                    {"name": "retrieval_failure", "confidence": 0.85, "evidence": "llm"},
+                )
+            )
             for _ in signals
         ]
 

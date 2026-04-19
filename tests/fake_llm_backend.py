@@ -10,7 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from typing import Any
+
+from agent_diagnostics.types import (
+    AnnotationError,
+    AnnotationNoCategoriesFound,
+    AnnotationOk,
+    AnnotationResult,
+)
 
 # ---------------------------------------------------------------------------
 # Category response catalogue — one entry per taxonomy v2 category
@@ -145,11 +153,53 @@ class FakeLLMBackend:
     def __init__(self) -> None:
         self.call_count: int = 0
         self.call_log: list[str] = []
+        self._next_results: deque[AnnotationResult] = deque()
 
     def __repr__(self) -> str:
         return f"FakeLLMBackend(call_count={self.call_count})"
 
     # ----- public API -----
+
+    def set_next_result(self, result: AnnotationResult) -> None:
+        """Queue a specific :class:`AnnotationResult` for the next call.
+
+        Supports testing each variant of the discriminated union
+        (``AnnotationOk`` / ``AnnotationNoCategoriesFound`` / ``AnnotationError``)
+        deterministically without having to engineer a prompt that triggers
+        the desired path through ``_match_categories``.
+
+        Queued results are consumed in FIFO order by
+        :meth:`annotate_as_result` and :meth:`annotate`; once the queue
+        empties, the backend falls back to keyword-based category matching.
+        """
+        if not isinstance(
+            result, (AnnotationOk, AnnotationNoCategoriesFound, AnnotationError)
+        ):
+            raise TypeError(
+                f"set_next_result expects an AnnotationResult variant, "
+                f"got {type(result).__name__}"
+            )
+        self._next_results.append(result)
+
+    def annotate_as_result(self, prompt: str) -> AnnotationResult:
+        """Return a :class:`AnnotationResult` for *prompt*.
+
+        If a result has been queued via :meth:`set_next_result`, it is
+        returned (and removed from the queue); otherwise the default
+        keyword-matched categories are wrapped in ``AnnotationOk`` /
+        ``AnnotationNoCategoriesFound``.
+        """
+        self.call_count += 1
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+        self.call_log.append(prompt_hash)
+
+        if self._next_results:
+            return self._next_results.popleft()
+
+        categories = self._match_categories(prompt)
+        if categories:
+            return AnnotationOk(categories=tuple(categories))
+        return AnnotationNoCategoriesFound()
 
     def annotate(self, prompt: str) -> dict[str, Any]:
         """Return a deterministic annotation response for *prompt*.
@@ -158,15 +208,27 @@ class FakeLLMBackend:
 
             {"categories": [{"name": "...", "confidence": 0.9, "evidence": "..."}]}
 
-        Determinism is guaranteed: the same prompt always yields the same
-        output, and the selection is based on category keywords in the prompt.
+        When a result is queued via :meth:`set_next_result`, this method
+        respects it:
+        - ``AnnotationOk`` yields ``{"categories": [...]}``;
+        - ``AnnotationNoCategoriesFound`` yields ``{"categories": []}``;
+        - ``AnnotationError`` raises :class:`RuntimeError` with the reason
+          (simulating a live backend failure).
         """
-        self.call_count += 1
-        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
-        self.call_log.append(prompt_hash)
-
-        categories = self._match_categories(prompt)
-        return {"categories": categories}
+        # Delegate to annotate_as_result so the queue-drain and
+        # keyword-matching logic live in exactly one place.
+        result = self.annotate_as_result(prompt)
+        match result:
+            case AnnotationOk(categories=cats):
+                return {"categories": list(cats)}
+            case AnnotationNoCategoriesFound():
+                return {"categories": []}
+            case AnnotationError(reason=reason):
+                raise RuntimeError(f"FakeLLMBackend queued error: {reason}")
+            case _:  # pragma: no cover — defensive, union is exhaustive
+                raise TypeError(
+                    f"Unexpected AnnotationResult variant: {type(result)!r}"
+                )
 
     def annotate_json(self, prompt: str) -> str:
         """Like ``annotate`` but returns a JSON string."""

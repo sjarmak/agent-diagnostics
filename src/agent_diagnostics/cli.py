@@ -239,12 +239,28 @@ def cmd_report(args):
 
 
 def cmd_llm_annotate(args):
-    """Generate LLM-assisted annotations for a sample of trials."""
+    """Generate LLM-assisted annotations for a sample of trials.
+
+    Consumes :class:`~agent_diagnostics.types.AnnotationResult` variants
+    returned by :func:`~agent_diagnostics.llm_annotator.annotate_batch` and
+    serialises them into ``observatory-annotation-v2`` with a per-trial
+    ``annotation_result_status`` (``"ok"`` / ``"no_categories"`` / ``"error"``)
+    and a top-level ``annotation_summary`` counting each variant.  Error
+    reasons are logged at WARNING and persisted in ``error_reason`` on the
+    affected annotation so downstream consumers can exclude them deterministically.
+    """
+    import logging
     import random
-    from datetime import datetime, timezone
 
     from agent_diagnostics.llm_annotator import annotate_batch
     from agent_diagnostics.taxonomy import load_taxonomy
+    from agent_diagnostics.types import (
+        AnnotationError,
+        AnnotationNoCategoriesFound,
+        AnnotationOk,
+    )
+
+    logger = logging.getLogger(__name__)
 
     signals_path = Path(args.signals)
     if not signals_path.is_file():
@@ -288,48 +304,79 @@ def cmd_llm_annotate(args):
     )
 
     annotations = []
-    for sig, cats in zip(sampled, batch_results):
+    summary_counts = {"ok": 0, "no_categories": 0, "error": 0}
+    for sig, result in zip(sampled, batch_results):
         reward_val = sig.get("reward")
-        annotation = {
+        match result:
+            case AnnotationOk(categories=cats):
+                status, categories, error_reason = "ok", list(cats), None
+            case AnnotationNoCategoriesFound():
+                status, categories, error_reason = "no_categories", [], None
+            case AnnotationError(reason=reason):
+                status, categories, error_reason = "error", [], reason
+                # Truncate defensively at the log boundary even though
+                # parsing._short_exc already caps reasons at construction.
+                logger.warning(
+                    "LLM annotation failed for trial %s: %s",
+                    sig.get("trial_path", "<unknown>"),
+                    reason[:500],
+                )
+            case _:  # pragma: no cover — defensive, union is exhaustive
+                raise TypeError(f"Unexpected AnnotationResult variant: {type(result)!r}")
+        summary_counts[status] += 1
+
+        annotation: dict[str, Any] = {
             "task_id": sig.get("task_id") or "unknown",
             "trial_path": sig.get("trial_path") or "",
             "reward": float(reward_val) if reward_val is not None else 0.0,
             "passed": (
                 bool(sig.get("passed")) if sig.get("passed") is not None else False
             ),
-            "categories": cats,
+            "categories": categories,
             "annotated_at": now,
+            "annotation_result_status": status,
         }
+        if error_reason is not None:
+            annotation["error_reason"] = error_reason
         for key in ("config_name", "benchmark", "model"):
             if sig.get(key):
                 annotation[key] = sig[key]
         annotations.append(annotation)
 
-    result = {
-        "schema_version": "observatory-annotation-v1",
+    annotation_summary = {**summary_counts, "total": len(annotations)}
+
+    result_doc = {
+        "schema_version": "observatory-annotation-v2",
         "taxonomy_version": str(taxonomy["version"]),
         "generated_at": now,
         "annotator": {
             "type": "llm",
             "identity": f"observatory.llm_annotator model={args.model} backend={backend}",
         },
+        "annotation_summary": annotation_summary,
         "annotations": annotations,
     }
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_doc, f, indent=2, default=str)
 
     total_categories = sum(len(a["categories"]) for a in annotations)
-    summary = (
+    print(
         f"Done: {len(annotations)}/{sample_size} trials annotated "
-        f"with {total_categories} category assignments"
+        f"with {total_categories} category assignments "
+        f"(ok={summary_counts['ok']}, "
+        f"no_categories={summary_counts['no_categories']}, "
+        f"error={summary_counts['error']})"
+        f". Output: {output}",
+        file=sys.stderr,
     )
-    summary += f". Output: {output}"
-    print(summary, file=sys.stderr)
 
-    # Write to AnnotationStore if --annotations-out is provided
+    # Write to AnnotationStore if --annotations-out is provided.
+    # Errored trials produce zero narrow rows (status is not persisted in
+    # AnnotationStore to keep the PK invariant; the document JSON carries
+    # status + annotation_summary for downstream aggregation).
     annotations_out = getattr(args, "annotations_out", None)
     if annotations_out:
         taxonomy_version = str(taxonomy["version"])

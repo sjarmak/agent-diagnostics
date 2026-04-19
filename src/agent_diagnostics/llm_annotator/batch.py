@@ -14,7 +14,6 @@ from agent_diagnostics.llm_annotator.parsing import (
     _load_json,
     _read_text,
     _to_annotation_result,
-    _unwrap_result,
 )
 from agent_diagnostics.llm_annotator.prompt import (
     _ANNOTATION_SCHEMA,
@@ -23,6 +22,7 @@ from agent_diagnostics.llm_annotator.prompt import (
     truncate_trajectory,
     validate_categories,
 )
+from agent_diagnostics.types import AnnotationError, AnnotationResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def annotate_batch_messages(
     signals_list: list[dict],
     model: str = "haiku",
     poll_interval: float = 10.0,
-) -> list[list[dict]]:
+) -> list[AnnotationResult]:
     """Annotate trials using the Anthropic Message Batches API.
 
     Submits all uncached trials as a single server-side batch, polls
@@ -52,6 +52,14 @@ def annotate_batch_messages(
         Model alias or full model ID.
     poll_interval : float
         Seconds between status polls (default 10).
+
+    Returns
+    -------
+    list[AnnotationResult]
+        One variant per input trial.  Cached ``list[dict]`` entries are
+        rewrapped as :class:`AnnotationOk` / :class:`AnnotationNoCategoriesFound`
+        on read.  Batch failures surface as :class:`AnnotationError` with the
+        API-supplied reason, replacing the initializer value.
     """
     import time
 
@@ -81,8 +89,13 @@ def annotate_batch_messages(
     }
 
     # --- Phase 1: build prompts and check cache ---
-    results: list[list[dict]] = [[] for _ in trials]
-    # Map from batch custom_id to (index, prompt, cache_key)
+    # Initializer is an honest error — if a slot is not overwritten by a
+    # cache hit, a success, or an API error (e.g. the batch API returns
+    # results for only a subset of the requested custom_ids), the slot
+    # surfaces as an explicit internal error instead of a false success.
+    results: list[AnnotationResult] = [
+        AnnotationError(reason="internal: trial not processed") for _ in trials
+    ]
     batch_requests: list[dict[str, Any]] = []
     pending: dict[str, tuple[int, str, str]] = {}  # custom_id -> (idx, trial_dir, ckey)
     cached_count = 0
@@ -99,7 +112,9 @@ def annotate_batch_messages(
         ckey = cache_key(prompt, model_id)
         cached = _pkg.get_cached(DEFAULT_CACHE_DIR, ckey)
         if cached is not None:
-            results[idx] = cached
+            # Cache never stores errors (put_cached skips them), so rewrapping
+            # always yields AnnotationOk or AnnotationNoCategoriesFound.
+            results[idx] = _to_annotation_result(cached)
             cached_count += 1
             continue
 
@@ -179,7 +194,7 @@ def annotate_batch_messages(
             _pkg.put_cached(
                 DEFAULT_CACHE_DIR, ckey, validated, is_error=_is_error(annotation)
             )
-            results[idx] = _unwrap_result(annotation)
+            results[idx] = annotation
             succeeded += 1
         else:
             error_msg = getattr(result.result, "error", None)
@@ -187,6 +202,9 @@ def annotate_batch_messages(
                 "Batch error for %s: %s",
                 trial_dir_str,
                 error_msg,
+            )
+            results[idx] = AnnotationError(
+                reason=f"batch error: {error_msg}" if error_msg else "batch error"
             )
             errored += 1
 

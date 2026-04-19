@@ -4,6 +4,11 @@ Backend entry points are resolved via lazy attribute lookup on the package
 namespace (``agent_diagnostics.llm_annotator``) rather than direct imports,
 so test-time ``mock.patch("agent_diagnostics.llm_annotator.annotate_trial_claude_code", ...)``
 takes effect on the binding this module actually calls.
+
+The public return type is :class:`AnnotationResult` (single trial) or
+``list[AnnotationResult]`` (batch).  Error reasons from subprocess / API
+failures propagate through this layer instead of being silently unwrapped
+to empty category lists.
 """
 
 from __future__ import annotations
@@ -11,6 +16,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_diagnostics import llm_annotator as _pkg
+from agent_diagnostics.types import AnnotationResult
+
+_VALID_BACKENDS = ("claude-code", "api", "batch")
+
+
+def _reject_unknown_backend(backend: str) -> None:
+    if backend not in _VALID_BACKENDS:
+        raise ValueError(
+            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
+        )
 
 
 def annotate_trial_llm(
@@ -18,33 +33,19 @@ def annotate_trial_llm(
     signals: dict,
     model: str = "haiku",
     backend: str = "claude-code",
-) -> list[dict]:
+) -> AnnotationResult:
     """Annotate a single trial using an LLM.
 
-    Parameters
-    ----------
-    trial_dir : str or Path
-        Path to the trial directory.
-    signals : dict
-        Pre-extracted signal vector for this trial.
-    model : str
-        Model alias (``'haiku'``, ``'sonnet'``, ``'opus'``) or full model ID.
-    backend : str
-        ``'claude-code'`` (default) uses the ``claude`` CLI.
-        ``'api'`` uses the Anthropic Python SDK.
-        ``'batch'`` is not supported for single-trial calls; use
-        :func:`annotate_batch` instead.
+    ``backend`` is one of ``'claude-code'`` (default, via the ``claude`` CLI),
+    ``'api'`` (Anthropic Python SDK), or ``'batch'`` — which falls back to the
+    API path because the Message Batches API has no meaningful single-trial
+    flavour; use :func:`annotate_batch` to benefit from it.
     """
+    _reject_unknown_backend(backend)
     if backend == "claude-code":
         return _pkg.annotate_trial_claude_code(trial_dir, signals, model)
-    elif backend == "api":
-        return _pkg.annotate_trial_api(trial_dir, signals, model)
-    elif backend == "batch":
-        return _pkg.annotate_trial_api(trial_dir, signals, model)
-    else:
-        raise ValueError(
-            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
-        )
+    # Both 'api' and 'batch' route here for single-trial calls.
+    return _pkg.annotate_trial_api(trial_dir, signals, model)
 
 
 def annotate_batch(
@@ -53,29 +54,15 @@ def annotate_batch(
     model: str = "haiku",
     max_concurrent: int = 5,
     backend: str = "claude-code",
-) -> list[list[dict]]:
+) -> list[AnnotationResult]:
     """Annotate a batch of trials using the LLM, with concurrency control.
 
-    Parameters
-    ----------
-    trials : list of str or Path
-        Trial directory paths.
-    signals_list : list of dict
-        Corresponding signal vectors (same length as *trials*).
-    model : str
-        Model alias or full model ID.
-    max_concurrent : int
-        Maximum number of concurrent calls/subprocesses.
-    backend : str
-        ``'claude-code'`` (default), ``'api'``, or ``'batch'``.
+    ``backend`` is one of ``'claude-code'`` (default), ``'api'``, or
+    ``'batch'`` (Anthropic Message Batches API, 50% cheaper).
     """
+    _reject_unknown_backend(backend)
     if backend == "claude-code":
         return _pkg.annotate_batch_claude_code(trials, signals_list, model, max_concurrent)
-    elif backend == "api":
+    if backend == "api":
         return _pkg.annotate_batch_api(trials, signals_list, model, max_concurrent)
-    elif backend == "batch":
-        return _pkg.annotate_batch_messages(trials, signals_list, model)
-    else:
-        raise ValueError(
-            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
-        )
+    return _pkg.annotate_batch_messages(trials, signals_list, model)

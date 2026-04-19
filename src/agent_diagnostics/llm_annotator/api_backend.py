@@ -15,8 +15,8 @@ from agent_diagnostics.llm_annotator.parsing import (
     _is_error,
     _load_json,
     _read_text,
+    _short_exc,
     _to_annotation_result,
-    _unwrap_result,
 )
 from agent_diagnostics.llm_annotator.prompt import (
     _ANNOTATION_SCHEMA,
@@ -34,10 +34,15 @@ def annotate_trial_api(
     trial_dir: str | Path,
     signals: dict,
     model: str = "haiku",
-) -> list[dict]:
+) -> AnnotationResult:
     """Annotate a single trial using the Anthropic API directly.
 
     Requires ``ANTHROPIC_API_KEY`` in the environment.
+
+    Returns an :class:`AnnotationResult` — :class:`AnnotationOk` with the
+    validated categories, :class:`AnnotationNoCategoriesFound` when the model
+    returned an empty list, or :class:`AnnotationError` carrying the failure
+    reason.
     """
     # Import cache helpers via the package so test mocks on
     # ``agent_diagnostics.llm_annotator.get_cached`` / ``put_cached`` apply.
@@ -64,7 +69,7 @@ def annotate_trial_api(
     cached = _pkg.get_cached(DEFAULT_CACHE_DIR, key)
     if cached is not None:
         logger.debug("Cache hit for %s (key=%s)", trial_dir, key[:12])
-        return cached
+        return _to_annotation_result(cached)
 
     # Tool definition for structured output via tool-use
     annotate_tool = {
@@ -93,20 +98,16 @@ def annotate_trial_api(
 
         if not isinstance(categories, list):
             logger.warning("LLM returned unexpected type for %s", trial_dir)
-            annotation: AnnotationResult = AnnotationError(
-                reason="LLM returned unexpected type"
-            )
-            return _unwrap_result(annotation)
+            return AnnotationError(reason="LLM returned unexpected type")
         validated = validate_categories(categories, trial_dir)
         annotation = _to_annotation_result(validated)
         _pkg.put_cached(
             DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation)
         )
-        return _unwrap_result(annotation)
+        return annotation
     except Exception as exc:
         logger.error("API error annotating %s: %s", trial_dir, exc)
-        annotation = AnnotationError(reason=f"API error: {exc}")
-        return _unwrap_result(annotation)
+        return AnnotationError(reason=f"API error: {_short_exc(exc)}")
 
 
 def annotate_batch_api(
@@ -114,8 +115,13 @@ def annotate_batch_api(
     signals_list: list[dict],
     model: str = "haiku",
     max_concurrent: int = 5,
-) -> list[list[dict]]:
-    """Annotate a batch of trials using the Anthropic API with concurrency."""
+) -> list[AnnotationResult]:
+    """Annotate a batch of trials using the Anthropic API with concurrency.
+
+    Returns a list of :class:`AnnotationResult` variants — one per input trial,
+    preserving error reasons through the async boundary instead of collapsing
+    failures to empty category lists.
+    """
     if len(trials) != len(signals_list):
         raise ValueError(
             f"trials ({len(trials)}) and signals_list ({len(signals_list)}) "
@@ -137,7 +143,7 @@ def annotate_batch_api(
         trial_dir: Path,
         signals: dict,
         aclient: Any,
-    ) -> tuple[int, list[dict]]:
+    ) -> tuple[int, AnnotationResult]:
         async with sem:
             instruction = _read_text(
                 trial_dir / "agent" / "instruction.txt",
@@ -161,8 +167,11 @@ def annotate_batch_api(
                 elif isinstance(parsed, list):
                     categories = parsed
                 else:
-                    return idx, []
-                return idx, validate_categories(categories, trial_dir)
+                    return idx, AnnotationError(
+                        reason="LLM returned unexpected top-level type"
+                    )
+                validated = validate_categories(categories, trial_dir)
+                return idx, _to_annotation_result(validated)
             except json.JSONDecodeError as exc:
                 logger.error(
                     "JSON parse error for trial %d (%s): %s",
@@ -170,7 +179,7 @@ def annotate_batch_api(
                     trial_dir,
                     exc,
                 )
-                return idx, []
+                return idx, AnnotationError(reason=f"JSON decode error: {_short_exc(exc)}")
             except Exception as exc:
                 logger.error(
                     "API error for trial %d (%s): %s",
@@ -178,19 +187,23 @@ def annotate_batch_api(
                     trial_dir,
                     exc,
                 )
-                return idx, []
+                return idx, AnnotationError(reason=f"API error: {_short_exc(exc)}")
 
-    async def _run_all() -> list[list[dict]]:
+    async def _run_all() -> list[AnnotationResult]:
         aclient = anthropic.AsyncAnthropic()
-        results: list[list[dict]] = [[] for _ in trials]
+        # Initializer is an honest error — any slot surviving the loop
+        # surfaces as an explicit error rather than a silent empty-success.
+        results: list[AnnotationResult] = [
+            AnnotationError(reason="internal: trial not processed") for _ in trials
+        ]
         tasks = [
             _annotate_one(i, Path(t), s, aclient)
             for i, (t, s) in enumerate(zip(trials, signals_list))
         ]
         done = 0
         for coro in asyncio.as_completed(tasks):
-            idx, cats = await coro
-            results[idx] = cats
+            idx, result = await coro
+            results[idx] = result
             done += 1
             print(f"  [{done}/{len(trials)}] annotated", file=sys.stderr)
         return results

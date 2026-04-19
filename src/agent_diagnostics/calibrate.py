@@ -13,6 +13,19 @@ Supports two comparison modes:
 
 Used to identify categories where annotators are unreliable and to
 calibrate confidence thresholds.
+
+Error-row policy
+----------------
+When an input file is ``observatory-annotation-v2`` and a trial carries
+``annotation_result_status == "error"``, the trial is excluded from the
+shared set at the trial granularity.  This prevents silently-failed
+annotations from being counted as "category absent" on one side, which
+would inflate FP/FN against the other side's labels.  Excluded counts
+are surfaced in the returned summary.
+
+Legacy ``observatory-annotation-v1`` rows (no ``annotation_result_status``
+field) default to ``"ok"`` on read — we cannot retroactively distinguish
+silent-failure empties from genuine no-categories rows.
 """
 
 from __future__ import annotations
@@ -22,11 +35,14 @@ from pathlib import Path
 from typing import Any
 
 
-def _load_annotations(path: str | Path) -> dict[str, set[str]]:
-    """Load an annotation file and return {trial_path: set of category names}.
+def _load_annotations(
+    path: str | Path,
+) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """Load an annotation file and return ``(categories_by_trial, status_by_trial)``.
 
     Handles both annotation document format (with top-level 'annotations' key)
-    and raw list format.
+    and raw list format.  ``status_by_trial`` defaults to ``"ok"`` for legacy
+    ``observatory-annotation-v1`` rows that lack the field.
     """
     with open(path) as f:
         data = json.load(f)
@@ -35,14 +51,36 @@ def _load_annotations(path: str | Path) -> dict[str, set[str]]:
     if not isinstance(annotations, list):
         raise ValueError(f"Expected annotations list, got {type(annotations).__name__}")
 
-    result: dict[str, set[str]] = {}
+    cats_by_trial: dict[str, set[str]] = {}
+    status_by_trial: dict[str, str] = {}
     for ann in annotations:
         trial = ann.get("trial_path", "")
         if not trial:
             continue
-        cats = {c["name"] for c in ann.get("categories", []) if "name" in c}
-        result[trial] = cats
-    return result
+        cats_by_trial[trial] = {
+            c["name"] for c in ann.get("categories", []) if "name" in c
+        }
+        status_by_trial[trial] = ann.get("annotation_result_status", "ok")
+    return cats_by_trial, status_by_trial
+
+
+def _partition_by_error(
+    shared_all: set[str],
+    a_status: dict[str, str],
+    b_status: dict[str, str],
+) -> tuple[set[str], int, int]:
+    """Drop trials whose status on either side is ``"error"``.
+
+    Returns ``(shared, a_errors, b_errors)``.
+    """
+    a_errors = sum(1 for t in shared_all if a_status.get(t, "ok") == "error")
+    b_errors = sum(1 for t in shared_all if b_status.get(t, "ok") == "error")
+    shared = {
+        t
+        for t in shared_all
+        if a_status.get(t, "ok") != "error" and b_status.get(t, "ok") != "error"
+    }
+    return shared, a_errors, b_errors
 
 
 def compare_annotations(
@@ -77,10 +115,17 @@ def compare_annotations(
         - ``macro_avg``: macro-averaged precision, recall, f1 across
           categories with at least one TP+FP+FN
     """
-    heuristic = _load_annotations(heuristic_file)
-    llm = _load_annotations(llm_file)
+    heuristic, heuristic_status = _load_annotations(heuristic_file)
+    llm, llm_status = _load_annotations(llm_file)
 
-    shared = set(heuristic.keys()) & set(llm.keys())
+    shared_all = set(heuristic.keys()) & set(llm.keys())
+
+    # Exclude trials where either side reports an error: their empty category
+    # sets would inflate FP/FN counts against the other side's labels.
+    shared, heuristic_error_count, llm_error_count = _partition_by_error(
+        shared_all, heuristic_status, llm_status
+    )
+    excluded_errored_trials = len(shared_all) - len(shared)
 
     # Collect all category names seen in shared trials
     all_cats: set[str] = set()
@@ -132,8 +177,14 @@ def compare_annotations(
     else:
         macro_p = macro_r = macro_f1 = 0.0
 
+    shared_all_count = len(shared_all) or 1
     return {
         "shared_trials": len(shared),
+        "excluded_errored_trials": excluded_errored_trials,
+        "heuristic_error_count": heuristic_error_count,
+        "llm_error_count": llm_error_count,
+        "heuristic_error_rate": round(heuristic_error_count / shared_all_count, 4),
+        "llm_error_rate": round(llm_error_count / shared_all_count, 4),
         "categories": category_metrics,
         "macro_avg": {
             "precision": round(macro_p, 4),
@@ -159,6 +210,12 @@ def format_markdown(summary: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("## Heuristic vs LLM Agreement\n")
     lines.append(f"Shared trials: {summary['shared_trials']}\n")
+    if summary.get("excluded_errored_trials", 0) > 0:
+        lines.append(
+            f"Excluded errored trials: {summary['excluded_errored_trials']} "
+            f"(heuristic errors={summary.get('heuristic_error_count', 0)}, "
+            f"llm errors={summary.get('llm_error_count', 0)})\n"
+        )
 
     lines.append("| Category | TP | FP | FN | Precision | Recall | F1 |")
     lines.append("|----------|---:|---:|---:|----------:|-------:|---:|")
@@ -275,14 +332,22 @@ def compare_cross_model(
           below the threshold
         - ``macro_kappa``: average kappa across all categories with signal
     """
-    model_a = _load_annotations(model_a_file)
-    model_b = _load_annotations(model_b_file)
+    model_a, model_a_status = _load_annotations(model_a_file)
+    model_b, model_b_status = _load_annotations(model_b_file)
 
-    shared_trials = sorted(set(model_a.keys()) & set(model_b.keys()))
+    shared_all = set(model_a.keys()) & set(model_b.keys())
+    shared_set, a_error_count, b_error_count = _partition_by_error(
+        shared_all, model_a_status, model_b_status
+    )
+    shared_trials = sorted(shared_set)
+    excluded_errored_trials = len(shared_all) - len(shared_trials)
 
     if not shared_trials:
         return {
             "shared_trials": 0,
+            "excluded_errored_trials": excluded_errored_trials,
+            "a_error_count": a_error_count,
+            "b_error_count": b_error_count,
             "categories": {},
             "uncalibrated_categories": [],
             "macro_kappa": 0.0,
@@ -324,6 +389,9 @@ def compare_cross_model(
 
     return {
         "shared_trials": len(shared_trials),
+        "excluded_errored_trials": excluded_errored_trials,
+        "a_error_count": a_error_count,
+        "b_error_count": b_error_count,
         "categories": category_results,
         "uncalibrated_categories": uncalibrated,
         "macro_kappa": round(macro_kappa, 4),

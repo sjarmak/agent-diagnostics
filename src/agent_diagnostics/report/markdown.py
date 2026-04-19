@@ -178,6 +178,7 @@ def _render_markdown(
     per_agent_summary: list[dict] | None = None,
     agent_benchmark_matrix: dict[str, dict[str, dict]] | None = None,
     top_divergences: list[dict] | None = None,
+    annotation_summary: dict[str, int] | None = None,
 ) -> str:
     """Render the Markdown reliability report."""
     lines: list[str] = []
@@ -201,6 +202,27 @@ def _render_markdown(
     lines.append(f"| Configs | {len(stats['configs'])} |")
     lines.append(f"| Benchmarks | {len(stats['benchmarks'])} |")
     lines.append("")
+
+    # Annotation quality — upstream annotator attempt outcomes, shown before
+    # per-category / per-agent slices so readers can gauge how much of the
+    # dataset is trustworthy before absorbing numbers with shrunk denominators.
+    if annotation_summary:
+        total_raw = annotation_summary.get("total", 0)
+        total = total_raw or 1  # avoid zero-div in the percentage formatter
+        lines.append("## Annotation Quality")
+        lines.append("")
+        lines.append(
+            "Outcomes from the upstream LLM annotation pass. "
+            "Error rows are excluded from calibration and blending."
+        )
+        lines.append("")
+        lines.append("| Status | Count | Rate |")
+        lines.append("|--------|-------|------|")
+        for status in ("ok", "no_categories", "error"):
+            count = annotation_summary.get(status, 0)
+            lines.append(f"| {status} | {count:,} | {count / total:.1%} |")
+        lines.append(f"| **total** | **{total_raw:,}** | |")
+        lines.append("")
 
     # Comparative analysis sections (headline slices — near the top)
     _render_comparative_sections(

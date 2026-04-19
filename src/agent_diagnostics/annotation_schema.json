@@ -8,8 +8,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "observatory-annotation-v1",
-      "description": "Schema version identifier."
+      "enum": ["observatory-annotation-v1", "observatory-annotation-v2"],
+      "description": "Schema version identifier. v2 adds optional per-annotation annotation_result_status / error_reason and a top-level annotation_summary block; v1 documents remain valid."
     },
     "taxonomy_version": {
       "type": "string",
@@ -35,6 +35,17 @@
       "type": "object",
       "description": "Metadata emitted by the blended annotator (source mix, trust thresholds, trusted-heuristic categories, etc.).",
       "additionalProperties": true
+    },
+    "annotation_summary": {
+      "type": "object",
+      "description": "v2+ only — per-variant counts across the annotations list (ok / no_categories / error / total). Arithmetic summary of annotation_result_status values; present for LLM annotator output, absent from heuristic/blend docs.",
+      "properties": {
+        "ok": { "type": "integer", "minimum": 0 },
+        "no_categories": { "type": "integer", "minimum": 0 },
+        "error": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     },
     "migration": {
       "type": "array",
@@ -156,6 +167,15 @@
           "type": "string",
           "format": "date-time",
           "description": "ISO 8601 timestamp when this annotation was created."
+        },
+        "annotation_result_status": {
+          "type": "string",
+          "enum": ["ok", "no_categories", "error"],
+          "description": "v2+ only — outcome of the LLM annotation attempt. 'ok' means categories were returned; 'no_categories' means the model ran but emitted no applicable categories; 'error' means the call failed (see error_reason). Legacy v1 documents default to 'ok' on read."
+        },
+        "error_reason": {
+          "type": "string",
+          "description": "v2+ only — human-readable failure reason populated when annotation_result_status == 'error' (e.g. subprocess return code, API exception, JSON decode error)."
         }
       },
       "additionalProperties": false

@@ -17,8 +17,8 @@ from agent_diagnostics.llm_annotator.parsing import (
     _load_json,
     _parse_claude_response,
     _read_text,
+    _short_exc,
     _to_annotation_result,
-    _unwrap_result,
 )
 from agent_diagnostics.llm_annotator.prompt import (
     _ANNOTATION_SCHEMA,
@@ -43,14 +43,37 @@ def _find_claude_cli() -> str:
     return path
 
 
+def _claude_cli_argv(
+    claude_bin: str, schema_str: str, model_alias: str, prompt: str
+) -> list[str]:
+    """Build the argv for a ``claude -p`` invocation with structured JSON output."""
+    return [
+        claude_bin,
+        "-p",
+        "--output-format",
+        "json",
+        "--json-schema",
+        schema_str,
+        "--model",
+        model_alias,
+        "--no-session-persistence",
+        prompt,
+    ]
+
+
 def annotate_trial_claude_code(
     trial_dir: str | Path,
     signals: dict,
     model: str = "haiku",
-) -> list[dict]:
+) -> AnnotationResult:
     """Annotate a single trial by spawning a ``claude -p`` subprocess.
 
     Uses the currently authenticated Claude Code account -- no API key needed.
+
+    Returns an :class:`AnnotationResult` — :class:`AnnotationOk` with the
+    validated categories, :class:`AnnotationNoCategoriesFound` when the model
+    returned an empty list, or :class:`AnnotationError` carrying the failure
+    reason (subprocess rc, timeout, parse error, etc.).
     """
     # Import cache helpers via the package so that tests patching
     # ``agent_diagnostics.llm_annotator.get_cached`` / ``put_cached`` affect
@@ -72,24 +95,13 @@ def annotate_trial_claude_code(
     cached = _pkg.get_cached(DEFAULT_CACHE_DIR, key)
     if cached is not None:
         logger.debug("Cache hit for %s (key=%s)", trial_dir, key[:12])
-        return cached
+        return _to_annotation_result(cached)
 
     schema_str = json.dumps(_ANNOTATION_SCHEMA)
 
     try:
         proc_result = subprocess.run(
-            [
-                claude_bin,
-                "-p",
-                "--output-format",
-                "json",
-                "--json-schema",
-                schema_str,
-                "--model",
-                model_alias,
-                "--no-session-persistence",
-                prompt,
-            ],
+            _claude_cli_argv(claude_bin, schema_str, model_alias, prompt),
             capture_output=True,
             text=True,
             timeout=120,
@@ -102,35 +114,30 @@ def annotate_trial_claude_code(
                 proc_result.returncode,
                 proc_result.stderr[:500],
             )
-            annotation: AnnotationResult = AnnotationError(
+            return AnnotationError(
                 reason=f"claude CLI rc={proc_result.returncode}"
             )
-            return _unwrap_result(annotation)
 
         envelope = json.loads(proc_result.stdout)
         categories = _parse_claude_response(envelope)
         if categories is None:
-            annotation = AnnotationError(reason="Failed to parse claude response")
-            return _unwrap_result(annotation)
+            return AnnotationError(reason="Failed to parse claude response")
         validated = validate_categories(categories, trial_dir)
         annotation = _to_annotation_result(validated)
         _pkg.put_cached(
             DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation)
         )
-        return _unwrap_result(annotation)
+        return annotation
 
     except subprocess.TimeoutExpired:
         logger.error("claude CLI timed out for %s", trial_dir)
-        annotation = AnnotationError(reason="claude CLI timed out")
-        return _unwrap_result(annotation)
+        return AnnotationError(reason="claude CLI timed out")
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse claude CLI output for %s: %s", trial_dir, exc)
-        annotation = AnnotationError(reason=f"JSON decode error: {exc}")
-        return _unwrap_result(annotation)
+        return AnnotationError(reason=f"JSON decode error: {_short_exc(exc)}")
     except Exception as exc:
         logger.error("Error running claude CLI for %s: %s", trial_dir, exc)
-        annotation = AnnotationError(reason=f"Unexpected error: {exc}")
-        return _unwrap_result(annotation)
+        return AnnotationError(reason=f"Unexpected error: {_short_exc(exc)}")
 
 
 async def _annotate_one_claude_code(
@@ -141,8 +148,12 @@ async def _annotate_one_claude_code(
     sem: asyncio.Semaphore,
     claude_bin: str,
     taxonomy: str,
-) -> tuple[int, list[dict]]:
-    """Async wrapper: spawn one claude -p subprocess under a semaphore."""
+) -> tuple[int, AnnotationResult]:
+    """Async wrapper: spawn one claude -p subprocess under a semaphore.
+
+    Returns ``(idx, AnnotationResult)`` so errors propagate to the caller
+    with their reason intact instead of being silently unwrapped to ``[]``.
+    """
     async with sem:
         instruction = _read_text(
             trial_dir / "agent" / "instruction.txt", max_chars=4000
@@ -155,16 +166,7 @@ async def _annotate_one_claude_code(
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                claude_bin,
-                "-p",
-                "--output-format",
-                "json",
-                "--json-schema",
-                schema_str,
-                "--model",
-                model_alias,
-                "--no-session-persistence",
-                prompt,
+                *_claude_cli_argv(claude_bin, schema_str, model_alias, prompt),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -177,23 +179,28 @@ async def _annotate_one_claude_code(
                     trial_dir,
                     stderr.decode()[:500],
                 )
-                return idx, []
+                return idx, AnnotationError(
+                    reason=f"claude CLI rc={proc.returncode}"
+                )
 
             envelope = json.loads(stdout.decode())
             categories = _parse_claude_response(envelope)
             if categories is None:
-                return idx, []
-            return idx, validate_categories(categories, trial_dir)
+                return idx, AnnotationError(
+                    reason="Failed to parse claude response"
+                )
+            validated = validate_categories(categories, trial_dir)
+            return idx, _to_annotation_result(validated)
 
         except asyncio.TimeoutError:
             logger.error("claude CLI timed out for trial %d (%s)", idx, trial_dir)
-            return idx, []
+            return idx, AnnotationError(reason="claude CLI timed out")
         except json.JSONDecodeError as exc:
             logger.error("JSON parse error for trial %d (%s): %s", idx, trial_dir, exc)
-            return idx, []
+            return idx, AnnotationError(reason=f"JSON decode error: {_short_exc(exc)}")
         except Exception as exc:
             logger.error("Error for trial %d (%s): %s", idx, trial_dir, exc)
-            return idx, []
+            return idx, AnnotationError(reason=f"Unexpected error: {_short_exc(exc)}")
 
 
 def annotate_batch_claude_code(
@@ -201,8 +208,13 @@ def annotate_batch_claude_code(
     signals_list: list[dict],
     model: str = "haiku",
     max_concurrent: int = 5,
-) -> list[list[dict]]:
-    """Annotate a batch of trials using parallel ``claude -p`` subprocesses."""
+) -> list[AnnotationResult]:
+    """Annotate a batch of trials using parallel ``claude -p`` subprocesses.
+
+    Returns a list of :class:`AnnotationResult` variants — one per input trial,
+    preserving error reasons through the async boundary instead of collapsing
+    failures to empty category lists.
+    """
     if len(trials) != len(signals_list):
         raise ValueError(
             f"trials ({len(trials)}) and signals_list ({len(signals_list)}) "
@@ -213,8 +225,13 @@ def annotate_batch_claude_code(
     taxonomy = _taxonomy_yaml()
     sem = asyncio.Semaphore(max_concurrent)
 
-    async def _run_all() -> list[list[dict]]:
-        results: list[list[dict]] = [[] for _ in trials]
+    async def _run_all() -> list[AnnotationResult]:
+        # Initializer is an honest error — any slot surviving the loop
+        # (task cancellation, scheduler bug) surfaces as an explicit error
+        # instead of a silent empty-success.
+        results: list[AnnotationResult] = [
+            AnnotationError(reason="internal: trial not processed") for _ in trials
+        ]
         tasks = [
             _annotate_one_claude_code(
                 i,
@@ -229,8 +246,8 @@ def annotate_batch_claude_code(
         ]
         done = 0
         for coro in asyncio.as_completed(tasks):
-            idx, cats = await coro
-            results[idx] = cats
+            idx, result = await coro
+            results[idx] = result
             done += 1
             print(f"  [{done}/{len(trials)}] annotated", file=sys.stderr)
         return results

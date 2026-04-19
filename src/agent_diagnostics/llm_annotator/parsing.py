@@ -38,7 +38,7 @@ def _load_json(path: Path) -> Any | None:
 
 
 # ---------------------------------------------------------------------------
-# AnnotationResult helpers (internal use — unwrapped at module boundary)
+# AnnotationResult helpers
 # ---------------------------------------------------------------------------
 
 
@@ -50,7 +50,7 @@ def _to_annotation_result(categories: list[dict]) -> AnnotationResult:
 
 
 def _unwrap_result(result: AnnotationResult) -> list[dict]:
-    """Convert an AnnotationResult back to ``list[dict]`` for the public API boundary."""
+    """Return the category list for :class:`AnnotationOk`, else ``[]``."""
     if isinstance(result, AnnotationOk):
         return list(result.categories)
     return []
@@ -59,6 +59,22 @@ def _unwrap_result(result: AnnotationResult) -> list[dict]:
 def _is_error(result: AnnotationResult) -> bool:
     """Return ``True`` if *result* represents a failed annotation."""
     return isinstance(result, AnnotationError)
+
+
+# Cap on exception-derived reason strings.  Some network exceptions
+# (e.g. httpx.HTTPStatusError wrapping a large response body) can carry
+# multi-kilobyte ``__str__`` output; truncate before persistence and logging
+# so adversarially-large reasons cannot cause memory bloat or leak response
+# bodies verbatim into logs.
+_MAX_ERROR_REASON_LEN = 500
+
+
+def _short_exc(exc: BaseException) -> str:
+    """Return ``str(exc)`` truncated to :data:`_MAX_ERROR_REASON_LEN`."""
+    body = str(exc)
+    if len(body) > _MAX_ERROR_REASON_LEN:
+        return body[:_MAX_ERROR_REASON_LEN] + "... [truncated]"
+    return body
 
 
 # ---------------------------------------------------------------------------

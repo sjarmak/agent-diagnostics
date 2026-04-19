@@ -26,13 +26,15 @@ def build_json_payload(
     per_agent_summary: list[dict],
     agent_benchmark_matrix: dict[str, dict[str, dict]],
     top_divergences: list[dict],
+    annotation_summary: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON companion dict.
 
     Field order is preserved for byte-identical output against the
-    pre-split report.
+    pre-split report.  ``annotation_summary`` is appended only when
+    provided, keeping legacy payloads unchanged.
     """
-    return {
+    payload: dict[str, Any] = {
         "generated_at": generated_at,
         "corpus_stats": stats,
         "category_counts": cat_counts_with_denominators,
@@ -46,3 +48,6 @@ def build_json_payload(
         "agent_benchmark_matrix": agent_benchmark_matrix,
         "top_divergences": top_divergences,
     }
+    if annotation_summary is not None:
+        payload["annotation_summary"] = annotation_summary
+    return payload

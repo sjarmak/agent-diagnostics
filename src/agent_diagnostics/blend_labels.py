@@ -8,6 +8,14 @@ Strategy:
 
 This produces a larger effective training set than LLM-only labeling,
 at zero additional cost.
+
+Error-row policy
+----------------
+When the ``v2`` annotation schema carries ``annotation_result_status ==
+"error"`` on an LLM annotation, that trial is skipped from the blend
+entirely — including the heuristic-only fallback path — to avoid
+polluting the classifier's training set with category distributions
+that were biased by a silent LLM failure.
 """
 
 from __future__ import annotations
@@ -96,9 +104,17 @@ def blend(
     blended: list[dict] = []
     heuristic_only_count = 0
 
+    skipped_errored_llm = 0
     for path in sorted(all_paths):
         llm_ann = llm_by_path.get(path)
         heur_ann = heur_by_path.get(path)
+
+        # Skip trials whose LLM annotation errored — the empty category
+        # list is a silent failure, not a confident "nothing applies"
+        # signal, and blending it would bias downstream training.
+        if llm_ann and llm_ann.get("annotation_result_status") == "error":
+            skipped_errored_llm += 1
+            continue
 
         # Start from whichever annotation exists
         if llm_ann:
@@ -178,6 +194,7 @@ def blend(
             "total_blended": len(blended),
             "trusted_heuristic_categories": sorted(trusted_heuristic_cats),
             "trust_threshold": heuristic_trust_threshold,
+            "skipped_errored_llm_trials": skipped_errored_llm,
         },
         "annotations": blended,
     }

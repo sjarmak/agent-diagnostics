@@ -654,8 +654,9 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 1.0})
 
-        assert len(result) == 2
-        names = {c["name"] for c in result}
+        assert isinstance(result, AnnotationOk)
+        assert len(result.categories) == 2
+        names = {c["name"] for c in result.categories}
         assert names == {"retrieval_failure", "query_churn"}
 
     def test_success_raw_fallback(self, tmp_path: Path) -> None:
@@ -679,8 +680,9 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 0.5})
 
-        assert len(result) == 1
-        assert result[0]["name"] == "stale_context"
+        assert isinstance(result, AnnotationOk)
+        assert len(result.categories) == 1
+        assert result.categories[0]["name"] == "stale_context"
 
     def test_subprocess_failure(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -702,7 +704,8 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "rc=1" in result.reason
 
     def test_timeout(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -719,7 +722,8 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "timed out" in result.reason
 
     def test_bad_json(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -741,7 +745,8 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "JSON decode" in result.reason
 
     def test_is_error_response(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -764,7 +769,8 @@ class TestAnnotateTrialClaudeCode:
         ):
             result = annotate_trial_claude_code(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "parse" in result.reason.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -818,9 +824,10 @@ class TestAnnotateTrialApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             result = annotate_trial_api(trial_dir, {"reward": 1.0})
 
-        assert len(result) == 1
-        assert result[0]["name"] == "retrieval_failure"
-        assert result[0]["confidence"] == 0.9
+        assert isinstance(result, AnnotationOk)
+        assert len(result.categories) == 1
+        assert result.categories[0]["name"] == "retrieval_failure"
+        assert result.categories[0]["confidence"] == 0.9
 
     def test_api_error(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -834,7 +841,8 @@ class TestAnnotateTrialApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             result = annotate_trial_api(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "API rate limit" in result.reason
 
     def test_non_list_response(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
@@ -850,7 +858,12 @@ class TestAnnotateTrialApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             result = annotate_trial_api(trial_dir, {"reward": 0.0})
 
-        assert result == []
+        # "42" is valid JSON but neither list nor dict -> validate_categories([])
+        # yields NoCategoriesFound (parsed but categories list empty),
+        # OR a non-dict/list triggers empty categories, which is also
+        # NoCategoriesFound.  In this case categories=[] so we expect
+        # NoCategoriesFound.
+        assert isinstance(result, AnnotationNoCategoriesFound)
 
 
 # ---------------------------------------------------------------------------
@@ -947,7 +960,8 @@ class TestCacheHitPaths:
         ):
             result = annotate_trial_claude_code(trial_dir, {})
 
-        assert result == cached_cats
+        assert isinstance(result, AnnotationOk)
+        assert list(result.categories) == cached_cats
         mock_get.assert_called_once()
         mock_run.assert_not_called()
 
@@ -968,7 +982,8 @@ class TestCacheHitPaths:
         ):
             result = annotate_trial_api(trial_dir, {})
 
-        assert result == cached_cats
+        assert isinstance(result, AnnotationOk)
+        assert list(result.categories) == cached_cats
         mock_get.assert_called_once()
         mock_anthropic.Anthropic.assert_not_called()
 
@@ -1001,7 +1016,8 @@ class TestCacheHitPaths:
             result = annotate_trial_claude_code(trial_dir, {})
 
         mock_run.assert_called_once()
-        assert len(result) == 2
+        assert isinstance(result, AnnotationOk)
+        assert len(result.categories) == 2
 
     def test_model_id_difference_yields_different_cache_key(self) -> None:
         """Different model IDs must produce different cache keys for the same prompt."""
@@ -1044,7 +1060,8 @@ class TestAnnotateTrialClaudeCodeExceptionHandler:
         ):
             result = annotate_trial_claude_code(trial_dir, {})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "Unexpected" in result.reason
 
 
 # ---------------------------------------------------------------------------
@@ -1081,7 +1098,8 @@ class TestAnnotateTrialApiNonListCategories:
         ):
             result = annotate_trial_api(trial_dir, {})
 
-        assert result == []
+        assert isinstance(result, AnnotationError)
+        assert "unexpected type" in result.reason
 
     def test_no_tool_use_block_returns_empty(self, tmp_path: Path) -> None:
         """When no tool_use block is present, categories list stays empty."""
@@ -1108,7 +1126,9 @@ class TestAnnotateTrialApiNonListCategories:
         ):
             result = annotate_trial_api(trial_dir, {})
 
-        assert result == []
+        # No tool_use block -> categories stays []; validate yields [] ->
+        # NoCategoriesFound.
+        assert isinstance(result, AnnotationNoCategoriesFound)
 
 
 # ---------------------------------------------------------------------------
@@ -1155,7 +1175,8 @@ class TestAnnotateTrialApiPutCached:
         ):
             result = annotate_trial_api(trial_dir, {})
 
-        assert len(result) == 1
+        assert isinstance(result, AnnotationOk)
+        assert len(result.categories) == 1
         mock_put.assert_called_once()
         assert mock_put.call_args.kwargs.get("is_error") is False
 
@@ -1188,7 +1209,7 @@ class TestAnnotateTrialApiPutCached:
         ):
             result = annotate_trial_api(trial_dir, {})
 
-        assert result == []
+        assert isinstance(result, AnnotationNoCategoriesFound)
         mock_put.assert_called_once()
         assert mock_put.call_args.kwargs.get("is_error") is False
 
@@ -1289,7 +1310,7 @@ class TestAnnotateBatchClaudeCode:
 
         assert len(results) == 2
         for r in results:
-            assert isinstance(r, list)
+            assert isinstance(r, AnnotationOk)
 
     def test_batch_subprocess_failure_returns_empty_for_that_trial(
         self, tmp_path: Path
@@ -1314,7 +1335,9 @@ class TestAnnotateBatchClaudeCode:
         ):
             results = annotate_batch_claude_code([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "rc=1" in results[0].reason
 
     def test_batch_timeout_returns_empty_for_that_trial(
         self, tmp_path: Path
@@ -1342,7 +1365,9 @@ class TestAnnotateBatchClaudeCode:
         ):
             results = annotate_batch_claude_code([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "timed out" in results[0].reason
 
     def test_batch_json_parse_error_returns_empty(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
@@ -1365,7 +1390,9 @@ class TestAnnotateBatchClaudeCode:
         ):
             results = annotate_batch_claude_code([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "JSON decode" in results[0].reason
 
     def test_batch_generic_exception_returns_empty(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
@@ -1385,7 +1412,9 @@ class TestAnnotateBatchClaudeCode:
         ):
             results = annotate_batch_claude_code([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "Unexpected" in results[0].reason
 
     def test_batch_none_parse_returns_empty(self, tmp_path: Path) -> None:
         """When _parse_claude_response returns None, trial result should be []."""
@@ -1412,7 +1441,9 @@ class TestAnnotateBatchClaudeCode:
         ):
             results = annotate_batch_claude_code([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "parse" in results[0].reason.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -1473,8 +1504,9 @@ class TestAnnotateBatchApi:
 
         assert len(results) == 2
         for r in results:
-            assert len(r) == 1
-            assert r[0]["name"] == "retrieval_failure"
+            assert isinstance(r, AnnotationOk)
+            assert len(r.categories) == 1
+            assert r.categories[0]["name"] == "retrieval_failure"
 
     def test_batch_api_json_error_returns_empty(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
@@ -1493,7 +1525,9 @@ class TestAnnotateBatchApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             results = annotate_batch_api([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "JSON decode" in results[0].reason
 
     def test_batch_api_exception_returns_empty(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
@@ -1509,7 +1543,9 @@ class TestAnnotateBatchApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             results = annotate_batch_api([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "API down" in results[0].reason
 
     def test_batch_api_list_response(self, tmp_path: Path) -> None:
         """Test the branch where parsed JSON is a list, not a dict."""
@@ -1534,7 +1570,8 @@ class TestAnnotateBatchApi:
             results = annotate_batch_api([t1], [{}])
 
         assert len(results) == 1
-        assert results[0][0]["name"] == "query_churn"
+        assert isinstance(results[0], AnnotationOk)
+        assert results[0].categories[0]["name"] == "query_churn"
 
     def test_batch_api_non_list_non_dict_returns_empty(self, tmp_path: Path) -> None:
         """Test the branch where parsed JSON is neither list nor dict."""
@@ -1554,7 +1591,9 @@ class TestAnnotateBatchApi:
         with mock.patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             results = annotate_batch_api([t1], [{}])
 
-        assert results == [[]]
+        assert len(results) == 1
+        assert isinstance(results[0], AnnotationError)
+        assert "unexpected" in results[0].reason.lower()
 
 
 # ---------------------------------------------------------------------------

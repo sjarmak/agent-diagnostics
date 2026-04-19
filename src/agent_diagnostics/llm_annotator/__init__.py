@@ -75,7 +75,7 @@ from agent_diagnostics.llm_annotator.parsing import (
     _parse_claude_response,
     _read_text,
     _to_annotation_result,
-    _unwrap_result,
+    _unwrap_result,  # noqa: F401 — retained for test-time import via this namespace
 )
 from agent_diagnostics.llm_annotator.prompt import (
     _ANNOTATION_SCHEMA,
@@ -93,10 +93,27 @@ from agent_diagnostics.llm_annotator.prompt import (
 # ---------------------------------------------------------------------------
 from agent_diagnostics.taxonomy import valid_category_names
 
+# ---------------------------------------------------------------------------
+# Re-export AnnotationResult union so callers of annotate_trial_llm /
+# annotate_batch can destructure the return type without reaching into
+# :mod:`agent_diagnostics.types`.
+# ---------------------------------------------------------------------------
+from agent_diagnostics.types import (
+    AnnotationError,
+    AnnotationNoCategoriesFound,
+    AnnotationOk,
+    AnnotationResult,
+)
+
 # Module logger (kept for backward-compat; submodules define their own).
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    # AnnotationResult discriminated union (returned by dispatch)
+    "AnnotationError",
+    "AnnotationNoCategoriesFound",
+    "AnnotationOk",
+    "AnnotationResult",
     # model resolution
     "_API_MODEL_MAP",
     "_MODEL_ALIASES",
@@ -108,7 +125,6 @@ __all__ = [
     "_parse_claude_response",
     "_read_text",
     "_to_annotation_result",
-    "_unwrap_result",
     # prompt helpers
     "_ANNOTATION_SCHEMA",
     "_taxonomy_yaml",

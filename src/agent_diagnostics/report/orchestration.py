@@ -59,6 +59,7 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ann_list = annotations.get("annotations", [])
+    annotation_summary = annotations.get("annotation_summary")
     polarity_map = _load_taxonomy_polarity()
     generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -107,6 +108,7 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         per_agent_summary=per_agent,
         agent_benchmark_matrix=matrix,
         top_divergences=divergences,
+        annotation_summary=annotation_summary,
     )
     md_path = output_dir / "reliability_report.md"
     md_path.write_text(md_content)
@@ -125,6 +127,7 @@ def generate_report(annotations: dict, output_dir: Path) -> tuple[Path, Path]:
         per_agent_summary=per_agent,
         agent_benchmark_matrix=matrix,
         top_divergences=divergences,
+        annotation_summary=annotation_summary,
     )
     json_path = output_dir / "reliability_report.json"
     with open(json_path, "w") as f:
