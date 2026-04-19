@@ -6,6 +6,7 @@ import importlib
 import importlib.metadata
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from typing import NoReturn
 
 import pytest
 
@@ -38,16 +39,19 @@ class TestVersionFallback:
         # without `pip install -e .` having registered metadata). The fallback
         # branch in `agent_diagnostics.__init__` must set __version__ to the
         # '0.0.0+unknown' sentinel instead of raising.
-        def _raise_not_found(name: str) -> str:
+        def _raise_not_found(name: str) -> NoReturn:
             raise PackageNotFoundError(name)
 
-        monkeypatch.setattr(importlib.metadata, "version", _raise_not_found)
-
-        try:
+        # Patch the attribute on the module object, not the already-bound alias
+        # in agent_diagnostics.__init__ (`from importlib.metadata import version
+        # as _pkg_version`). The patch only takes effect because reload()
+        # re-executes the from-import, picking up the patched attribute.
+        with monkeypatch.context() as mp:
+            mp.setattr(importlib.metadata, "version", _raise_not_found)
             reloaded = importlib.reload(agent_diagnostics)
             assert reloaded.__version__ == "0.0.0+unknown"
-        finally:
-            # Restore the real metadata-backed __version__ so subsequent tests
-            # (in any order) observe the installed value again.
-            monkeypatch.undo()
-            importlib.reload(agent_diagnostics)
+
+        # Outside the context, the patch is undone. Reload once more so the
+        # module's __version__ returns to the real installed value for any
+        # subsequent test that imports it.
+        importlib.reload(agent_diagnostics)

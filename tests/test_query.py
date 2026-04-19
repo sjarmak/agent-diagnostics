@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -260,8 +262,8 @@ def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
 
 
 def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
-    tmp_path: Path, caplog
-):
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """get_schema must skip a zero-column Parquet stub and fall through to JSONL.
 
     ``get_schema`` uses the same ``_register_parquet_view`` helper as
@@ -270,8 +272,6 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
     for get_schema so the schema-introspection path cannot silently lose
     its fallback behaviour.
     """
-    import logging
-
     import duckdb
 
     export_dir = tmp_path / "export"
@@ -305,8 +305,6 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
     with caplog.at_level(logging.WARNING, logger="agent_diagnostics.query"):
         output = get_schema(tmp_path, fmt="json")
 
-    import json
-
     schema = json.loads(output)
 
     # Signals described from the valid parquet, annotations from JSONL.
@@ -330,15 +328,13 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
 
 
 def test_get_schema_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
-    tmp_path: Path, caplog
-):
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Corrupt Parquet in the get_schema path must log ERROR and fall through.
 
     Mirrors ``test_corrupt_parquet_logs_error_and_falls_through_to_jsonl``
     but exercises ``get_schema`` instead of ``run_query``.
     """
-    import logging
-
     export_dir = tmp_path / "export"
     export_dir.mkdir()
 
@@ -356,8 +352,6 @@ def test_get_schema_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
 
     with caplog.at_level(logging.ERROR, logger="agent_diagnostics.query"):
         output = get_schema(tmp_path, fmt="json")
-
-    import json
 
     schema = json.loads(output)
 
