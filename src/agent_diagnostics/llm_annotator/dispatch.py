@@ -1,18 +1,16 @@
-"""Unified dispatch for the three LLM annotator backends."""
+"""Unified dispatch for the three LLM annotator backends.
+
+Backend entry points are resolved via lazy attribute lookup on the package
+namespace (``agent_diagnostics.llm_annotator``) rather than direct imports,
+so test-time ``mock.patch("agent_diagnostics.llm_annotator.annotate_trial_claude_code", ...)``
+takes effect on the binding this module actually calls.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agent_diagnostics.llm_annotator.api_backend import (
-    annotate_batch_api,
-    annotate_trial_api,
-)
-from agent_diagnostics.llm_annotator.batch import annotate_batch_messages
-from agent_diagnostics.llm_annotator.claude_code import (
-    annotate_batch_claude_code,
-    annotate_trial_claude_code,
-)
+from agent_diagnostics import llm_annotator as _pkg
 
 
 def annotate_trial_llm(
@@ -38,11 +36,11 @@ def annotate_trial_llm(
         :func:`annotate_batch` instead.
     """
     if backend == "claude-code":
-        return annotate_trial_claude_code(trial_dir, signals, model)
+        return _pkg.annotate_trial_claude_code(trial_dir, signals, model)
     elif backend == "api":
-        return annotate_trial_api(trial_dir, signals, model)
+        return _pkg.annotate_trial_api(trial_dir, signals, model)
     elif backend == "batch":
-        return annotate_trial_api(trial_dir, signals, model)
+        return _pkg.annotate_trial_api(trial_dir, signals, model)
     else:
         raise ValueError(
             f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
@@ -72,11 +70,11 @@ def annotate_batch(
         ``'claude-code'`` (default), ``'api'``, or ``'batch'``.
     """
     if backend == "claude-code":
-        return annotate_batch_claude_code(trials, signals_list, model, max_concurrent)
+        return _pkg.annotate_batch_claude_code(trials, signals_list, model, max_concurrent)
     elif backend == "api":
-        return annotate_batch_api(trials, signals_list, model, max_concurrent)
+        return _pkg.annotate_batch_api(trials, signals_list, model, max_concurrent)
     elif backend == "batch":
-        return annotate_batch_messages(trials, signals_list, model)
+        return _pkg.annotate_batch_messages(trials, signals_list, model)
     else:
         raise ValueError(
             f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
