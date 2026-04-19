@@ -255,6 +255,130 @@ def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
 
 
 # ---------------------------------------------------------------------------
+# get_schema — Parquet fallback coverage (mirrors run_query tests above)
+# ---------------------------------------------------------------------------
+
+
+def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
+    tmp_path: Path, caplog
+):
+    """get_schema must skip a zero-column Parquet stub and fall through to JSONL.
+
+    ``get_schema`` uses the same ``_register_parquet_view`` helper as
+    ``run_query`` via a parallel loop. The run_query path has regression
+    coverage (``test_unreadable_parquet_skipped``); this test mirrors it
+    for get_schema so the schema-introspection path cannot silently lose
+    its fallback behaviour.
+    """
+    import logging
+
+    import duckdb
+
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    # Write a valid signals.parquet so at least one table is readable.
+    signals_path = export_dir / "signals.parquet"
+    con = duckdb.connect(":memory:")
+    con.execute(
+        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
+        f"TO '{signals_path}' (FORMAT PARQUET)"
+    )
+    con.close()
+
+    # Zero-column annotations.parquet stub — the exact shape older exports
+    # produced. read_parquet rejects it with "Need at least one non-root
+    # column".
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.table({}), export_dir / "annotations.parquet")
+
+    # JSONL fallback for annotations so get_schema can still describe it.
+    jsonl_path = tmp_path / "annotations.jsonl"
+    jsonl_path.write_text(
+        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
+    )
+
+    from agent_diagnostics.query import get_schema
+
+    with caplog.at_level(logging.WARNING, logger="agent_diagnostics.query"):
+        output = get_schema(tmp_path, fmt="json")
+
+    import json
+
+    schema = json.loads(output)
+
+    # Signals described from the valid parquet, annotations from JSONL.
+    assert "signals" in schema
+    assert "annotations" in schema
+    signals_cols = {c["column_name"] for c in schema["signals"]}
+    assert "task_id" in signals_cols
+    assert "reward" in signals_cols
+    annotation_cols = {c["column_name"] for c in schema["annotations"]}
+    assert "trial_id" in annotation_cols
+    assert "category_name" in annotation_cols
+
+    # The zero-column stub case should log at WARNING (known issue path).
+    skip_records = [
+        r for r in caplog.records if "annotations" in r.getMessage()
+    ]
+    assert skip_records, "expected a log entry mentioning the skipped annotations table"
+    assert any(r.levelno == logging.WARNING for r in skip_records), (
+        "zero-column stub should log at WARNING, not ERROR"
+    )
+
+
+def test_get_schema_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
+    tmp_path: Path, caplog
+):
+    """Corrupt Parquet in the get_schema path must log ERROR and fall through.
+
+    Mirrors ``test_corrupt_parquet_logs_error_and_falls_through_to_jsonl``
+    but exercises ``get_schema`` instead of ``run_query``.
+    """
+    import logging
+
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    # Truncated garbage masquerading as Parquet.
+    corrupt_path = export_dir / "annotations.parquet"
+    corrupt_path.write_bytes(b"not-a-parquet-file")
+
+    # JSONL fallback with real data.
+    jsonl_path = tmp_path / "annotations.jsonl"
+    jsonl_path.write_text(
+        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
+    )
+
+    from agent_diagnostics.query import get_schema
+
+    with caplog.at_level(logging.ERROR, logger="agent_diagnostics.query"):
+        output = get_schema(tmp_path, fmt="json")
+
+    import json
+
+    schema = json.loads(output)
+
+    # Fallback to JSONL must have happened — annotations columns visible.
+    assert "annotations" in schema
+    annotation_cols = {c["column_name"] for c in schema["annotations"]}
+    assert "trial_id" in annotation_cols
+    assert "category_name" in annotation_cols
+
+    # Unexpected-corruption case must log at ERROR.
+    error_records = [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
+    ]
+    assert error_records, (
+        "expected ERROR-level log for unexpected corrupt Parquet in get_schema"
+    )
+
+
+# ---------------------------------------------------------------------------
 # format_table
 # ---------------------------------------------------------------------------
 
