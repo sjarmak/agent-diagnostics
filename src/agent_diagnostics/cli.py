@@ -740,10 +740,14 @@ def cmd_calibrate(args):
 
     Permission contract: ``--output-dir`` is user-provided and its contents
     are created with the caller's umask — the caller is responsible for
-    choosing an appropriately-permissioned directory. The internal temp
-    directory used when composing ``--golden-dir`` into a reference document
-    is always owner-only (``0o700``) and the composed ``reference.json`` is
-    ``0o600``, regardless of caller umask.
+    choosing an appropriately-permissioned directory. Note that
+    ``calibration.json`` and ``calibration.md`` may contain corpus-derived
+    content (category names, confidence distributions, trial paths), so on
+    multi-user shared hosts callers should point ``--output-dir`` at a
+    private directory. The internal temp directory used when composing
+    ``--golden-dir`` into a reference document is always owner-only
+    (``0o700``) and the composed ``reference.json`` is ``0o600``, regardless
+    of caller umask.
     """
     import tempfile
 
