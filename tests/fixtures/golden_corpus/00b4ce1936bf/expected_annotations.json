@@ -1,0 +1,74 @@
+{
+  "trial_id_short": "00b4ce1936bf",
+  "categories": [
+    {
+      "name": "incomplete_solution",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "near_miss",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "premature_commit",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "tool_argument_error",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "verification_skipped",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "hallucinated_api",
+      "confidence": 0.6,
+      "evidence": "trajectory contains ModuleNotFoundError / ImportError / 'has no attribute' markers"
+    }
+  ],
+  "curator_notes": {
+    "methodology": "LLM-assisted rule-based curation.  Labels were produced by an automated evidence-based scorer that applies the taxonomy_v3.yaml detection_hints to the trial's signals and trajectory.  This substitutes for a human curator in the autonomous-agent execution context; a future human reviewer should spot-check and override any label.",
+    "curator_model": "claude-opus-4-7[1m]/rule-based-curator-v1",
+    "curator_confidence_threshold": 0.55,
+    "ambiguities_considered": [
+      {
+        "category": "hallucinated_api",
+        "curator_confidence": 0.6,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "trajectory contains ModuleNotFoundError / ImportError / 'has no attribute' markers"
+      }
+    ],
+    "rejected_categories": [],
+    "known_limitations": [
+      "Rule-based heuristic, not a semantic LLM pass.",
+      "Some categories (credential_exposure, destructive_operation, scope_violation, multi_repo_scope_failure, task_ambiguity) have no automated detector here; human curators should add these manually when observed."
+    ]
+  },
+  "reviewer": {
+    "reviewer_model": "claude-opus-4-7[1m]/rule-based-reviewer-v1",
+    "reviewer_confidence_threshold": 0.6,
+    "agreed_categories": [
+      "incomplete_solution",
+      "near_miss",
+      "premature_commit",
+      "tool_argument_error",
+      "verification_skipped"
+    ],
+    "disputed_categories": [
+      "hallucinated_api"
+    ],
+    "reviewer_categories": [
+      "incomplete_solution",
+      "near_miss",
+      "premature_commit",
+      "tool_argument_error",
+      "verification_skipped"
+    ]
+  }
+}

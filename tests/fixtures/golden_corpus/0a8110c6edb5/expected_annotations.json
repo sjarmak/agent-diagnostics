@@ -1,0 +1,134 @@
+{
+  "trial_id_short": "0a8110c6edb5",
+  "categories": [
+    {
+      "name": "decomposition_failure",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "edit_verify_loop_failure",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "retrieval_failure",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "tool_argument_error",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "verifier_mismatch",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "fabricated_success",
+      "confidence": 0.65,
+      "evidence": "agent message asserts completion but reward is 0.0; edits=6"
+    },
+    {
+      "name": "hallucinated_api",
+      "confidence": 0.6,
+      "evidence": "trajectory contains ModuleNotFoundError / ImportError / 'has no attribute' markers"
+    },
+    {
+      "name": "error_misdiagnosis",
+      "confidence": 0.55,
+      "evidence": "6 edits with 2 error steps on a failed run"
+    },
+    {
+      "name": "missing_code_navigation",
+      "confidence": 0.55,
+      "evidence": "edits made without go_to_definition or find_references calls"
+    },
+    {
+      "name": "tool_underutilization",
+      "confidence": 0.55,
+      "evidence": "MCP tools present in trajectory but semantic search unused"
+    },
+    {
+      "name": "verification_skipped",
+      "confidence": 0.55,
+      "evidence": "edit_tool_calls=6 but no Bash call after any edit"
+    }
+  ],
+  "curator_notes": {
+    "methodology": "LLM-assisted rule-based curation.  Labels were produced by an automated evidence-based scorer that applies the taxonomy_v3.yaml detection_hints to the trial's signals and trajectory.  This substitutes for a human curator in the autonomous-agent execution context; a future human reviewer should spot-check and override any label.",
+    "curator_model": "claude-opus-4-7[1m]/rule-based-curator-v1",
+    "curator_confidence_threshold": 0.55,
+    "ambiguities_considered": [
+      {
+        "category": "error_misdiagnosis",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "6 edits with 2 error steps on a failed run"
+      },
+      {
+        "category": "fabricated_success",
+        "curator_confidence": 0.65,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "agent message asserts completion but reward is 0.0; edits=6"
+      },
+      {
+        "category": "hallucinated_api",
+        "curator_confidence": 0.6,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "trajectory contains ModuleNotFoundError / ImportError / 'has no attribute' markers"
+      },
+      {
+        "category": "missing_code_navigation",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "edits made without go_to_definition or find_references calls"
+      },
+      {
+        "category": "tool_underutilization",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "MCP tools present in trajectory but semantic search unused"
+      },
+      {
+        "category": "verification_skipped",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "edit_tool_calls=6 but no Bash call after any edit"
+      }
+    ],
+    "rejected_categories": [],
+    "known_limitations": [
+      "Rule-based heuristic, not a semantic LLM pass.",
+      "Some categories (credential_exposure, destructive_operation, scope_violation, multi_repo_scope_failure, task_ambiguity) have no automated detector here; human curators should add these manually when observed."
+    ]
+  },
+  "reviewer": {
+    "reviewer_model": "claude-opus-4-7[1m]/rule-based-reviewer-v1",
+    "reviewer_confidence_threshold": 0.6,
+    "agreed_categories": [
+      "decomposition_failure",
+      "edit_verify_loop_failure",
+      "retrieval_failure",
+      "tool_argument_error",
+      "verifier_mismatch"
+    ],
+    "disputed_categories": [
+      "error_misdiagnosis",
+      "fabricated_success",
+      "hallucinated_api",
+      "missing_code_navigation",
+      "tool_underutilization",
+      "verification_skipped"
+    ],
+    "reviewer_categories": [
+      "decomposition_failure",
+      "edit_verify_loop_failure",
+      "retrieval_failure",
+      "tool_argument_error",
+      "verifier_mismatch"
+    ]
+  }
+}

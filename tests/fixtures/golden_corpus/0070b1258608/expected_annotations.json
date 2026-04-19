@@ -1,0 +1,110 @@
+{
+  "trial_id_short": "0070b1258608",
+  "categories": [
+    {
+      "name": "local_remote_mismatch",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "multi_repo_scope_failure",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "premature_commit",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "query_churn",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "verifier_mismatch",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "wrong_tool_choice",
+      "confidence": 0.6,
+      "evidence": "7 grep calls but no semantic search or nav on failed run"
+    },
+    {
+      "name": "tool_misuse",
+      "confidence": 0.55,
+      "evidence": "7 errors across 76 tool calls"
+    },
+    {
+      "name": "tool_underutilization",
+      "confidence": 0.55,
+      "evidence": "MCP tools present in trajectory but semantic search unused"
+    },
+    {
+      "name": "verification_skipped",
+      "confidence": 0.55,
+      "evidence": "edit_tool_calls=1 but no Bash call after any edit"
+    }
+  ],
+  "curator_notes": {
+    "methodology": "LLM-assisted rule-based curation.  Labels were produced by an automated evidence-based scorer that applies the taxonomy_v3.yaml detection_hints to the trial's signals and trajectory.  This substitutes for a human curator in the autonomous-agent execution context; a future human reviewer should spot-check and override any label.",
+    "curator_model": "claude-opus-4-7[1m]/rule-based-curator-v1",
+    "curator_confidence_threshold": 0.55,
+    "ambiguities_considered": [
+      {
+        "category": "tool_misuse",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "7 errors across 76 tool calls"
+      },
+      {
+        "category": "tool_underutilization",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "MCP tools present in trajectory but semantic search unused"
+      },
+      {
+        "category": "verification_skipped",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "edit_tool_calls=1 but no Bash call after any edit"
+      },
+      {
+        "category": "wrong_tool_choice",
+        "curator_confidence": 0.6,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "7 grep calls but no semantic search or nav on failed run"
+      }
+    ],
+    "rejected_categories": [],
+    "known_limitations": [
+      "Rule-based heuristic, not a semantic LLM pass.",
+      "Some categories (credential_exposure, destructive_operation, scope_violation, multi_repo_scope_failure, task_ambiguity) have no automated detector here; human curators should add these manually when observed."
+    ]
+  },
+  "reviewer": {
+    "reviewer_model": "claude-opus-4-7[1m]/rule-based-reviewer-v1",
+    "reviewer_confidence_threshold": 0.6,
+    "agreed_categories": [
+      "local_remote_mismatch",
+      "multi_repo_scope_failure",
+      "premature_commit",
+      "query_churn",
+      "verifier_mismatch"
+    ],
+    "disputed_categories": [
+      "tool_misuse",
+      "tool_underutilization",
+      "verification_skipped",
+      "wrong_tool_choice"
+    ],
+    "reviewer_categories": [
+      "local_remote_mismatch",
+      "multi_repo_scope_failure",
+      "premature_commit",
+      "query_churn",
+      "verifier_mismatch"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "trial_id_short": "000624051b19",
+  "trial_id_full": "000624051b1941d696698a481759535ea5f738bbc12e1bccd9caf01acbedd84f",
+  "model": "claude-sonnet-4-6",
+  "agent": "claude-code",
+  "benchmark": "test",
+  "reward": 0.0,
+  "passed": false,
+  "has_trajectory": true,
+  "total_turns": 87,
+  "tool_calls_total": 51,
+  "duration_seconds": 2905.477313,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=claude-code, benchmark=test, passed=False)",
+  "heuristic_categories": [
+    "tool_argument_error",
+    "edit_verify_loop_failure",
+    "premature_commit",
+    "decomposition_failure",
+    "verifier_mismatch"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": false,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

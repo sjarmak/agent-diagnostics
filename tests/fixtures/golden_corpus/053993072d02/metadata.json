@@ -1,0 +1,28 @@
+{
+  "trial_id_short": "053993072d02",
+  "trial_id_full": "053993072d021519fb474fa7fbfd6bac8b1ea55f4b25121bcdfed5db2e67d7f1",
+  "model": "",
+  "agent": "openhands",
+  "benchmark": "sdlc_test",
+  "reward": 0.0,
+  "passed": false,
+  "has_trajectory": true,
+  "total_turns": 197,
+  "tool_calls_total": 187,
+  "duration_seconds": 3352.85677,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=openhands, benchmark=sdlc_test, passed=False)",
+  "heuristic_categories": [
+    "query_churn",
+    "over_exploration",
+    "tool_argument_error",
+    "local_remote_mismatch",
+    "multi_repo_scope_failure"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": false,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "task_id": "mcp_ccx-crossorg-066_hRabbC",
+  "model": "claude-haiku-4-5-20251001",
+  "agent_name": "claude-code",
+  "config_name": "",
+  "benchmark": "org_crossorg",
+  "reward": 0.0,
+  "passed": false,
+  "has_verifier_result": true,
+  "total_turns": 13,
+  "tool_calls_total": 5,
+  "search_tool_calls": 0,
+  "edit_tool_calls": 1,
+  "code_nav_tool_calls": 1,
+  "semantic_search_tool_calls": 0,
+  "unique_files_read": 1,
+  "unique_files_edited": 1,
+  "files_read_list": [
+    "/workspace/answer.json"
+  ],
+  "files_edited_list": [
+    "/workspace/answer.json"
+  ],
+  "error_count": 1,
+  "retry_count": 0,
+  "trajectory_length": 5,
+  "has_result_json": true,
+  "has_trajectory": true,
+  "duration_seconds": 185.141113,
+  "rate_limited": false,
+  "exception_crashed": false,
+  "patch_size_lines": 4,
+  "tool_call_sequence": [
+    "mcp__sourcegraph__sg_keyword_search",
+    "mcp__sourcegraph__sg_keyword_search",
+    "mcp__sourcegraph__sg_keyword_search",
+    "Write",
+    "Read"
+  ],
+  "benchmark_source": "directory",
+  "trial_path": null,
+  "trial_id": "00b4efef62afb7ba83420c1171ce7fa8",
+  "trial_id_full": "00b4efef62afb7ba83420c1171ce7fa85c4d1e5b499322757b443cd8510bb588"
+}

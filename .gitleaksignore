@@ -1,0 +1,11 @@
+# gitleaks false-positive allowlist.
+#
+# Each entry is a fingerprint reported by gitleaks
+# (path:rule:line). Document the false-positive rationale in a comment
+# above each fingerprint so future reviewers can verify.
+
+# NodeBB benchmark task description embeds the upstream commit SHA
+# (40-char hex) which gitleaks' sourcegraph-access-token rule matches
+# on entropy. It is a public git commit SHA from NodeBB/NodeBB@8fd8079a,
+# not a Sourcegraph access token.
+tests/fixtures/golden_corpus/618b26fe2482/trajectory.json:sourcegraph-access-token:22

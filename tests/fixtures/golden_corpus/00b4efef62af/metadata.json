@@ -1,0 +1,27 @@
+{
+  "trial_id_short": "00b4efef62af",
+  "trial_id_full": "00b4efef62afb7ba83420c1171ce7fa85c4d1e5b499322757b443cd8510bb588",
+  "model": "claude-haiku-4-5-20251001",
+  "agent": "claude-code",
+  "benchmark": "org_crossorg",
+  "reward": 0.0,
+  "passed": false,
+  "has_trajectory": true,
+  "total_turns": 13,
+  "tool_calls_total": 5,
+  "duration_seconds": 185.141113,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=claude-code, benchmark=org_crossorg, passed=False)",
+  "heuristic_categories": [
+    "retrieval_failure",
+    "verification_skipped",
+    "premature_commit",
+    "verifier_mismatch"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": false,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

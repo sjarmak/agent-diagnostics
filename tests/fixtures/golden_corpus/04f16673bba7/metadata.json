@@ -1,0 +1,27 @@
+{
+  "trial_id_short": "04f16673bba7",
+  "trial_id_full": "04f16673bba7c294b862c67be7a1cdd001568d6a9740561356e42540b705d69f",
+  "model": "claude-sonnet-4-6",
+  "agent": "openhands",
+  "benchmark": "org_platform",
+  "reward": 0.0,
+  "passed": false,
+  "has_trajectory": true,
+  "total_turns": 79,
+  "tool_calls_total": 70,
+  "duration_seconds": 429.567487,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=openhands, benchmark=org_platform, passed=False)",
+  "heuristic_categories": [
+    "query_churn",
+    "edit_verify_loop_failure",
+    "verification_skipped",
+    "decomposition_failure"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": true,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

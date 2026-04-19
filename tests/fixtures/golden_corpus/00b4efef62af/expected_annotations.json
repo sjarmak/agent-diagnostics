@@ -1,0 +1,67 @@
+{
+  "trial_id_short": "00b4efef62af",
+  "categories": [
+    {
+      "name": "premature_commit",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "retrieval_failure",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "verification_skipped",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "verifier_mismatch",
+      "confidence": 0.8,
+      "evidence": "heuristic annotator flagged this category from signals"
+    },
+    {
+      "name": "tool_underutilization",
+      "confidence": 0.55,
+      "evidence": "MCP tools present in trajectory but semantic search unused"
+    }
+  ],
+  "curator_notes": {
+    "methodology": "LLM-assisted rule-based curation.  Labels were produced by an automated evidence-based scorer that applies the taxonomy_v3.yaml detection_hints to the trial's signals and trajectory.  This substitutes for a human curator in the autonomous-agent execution context; a future human reviewer should spot-check and override any label.",
+    "curator_model": "claude-opus-4-7[1m]/rule-based-curator-v1",
+    "curator_confidence_threshold": 0.55,
+    "ambiguities_considered": [
+      {
+        "category": "tool_underutilization",
+        "curator_confidence": 0.55,
+        "reviewer_below_threshold": true,
+        "curator_evidence": "MCP tools present in trajectory but semantic search unused"
+      }
+    ],
+    "rejected_categories": [],
+    "known_limitations": [
+      "Rule-based heuristic, not a semantic LLM pass.",
+      "Some categories (credential_exposure, destructive_operation, scope_violation, multi_repo_scope_failure, task_ambiguity) have no automated detector here; human curators should add these manually when observed."
+    ]
+  },
+  "reviewer": {
+    "reviewer_model": "claude-opus-4-7[1m]/rule-based-reviewer-v1",
+    "reviewer_confidence_threshold": 0.6,
+    "agreed_categories": [
+      "premature_commit",
+      "retrieval_failure",
+      "verification_skipped",
+      "verifier_mismatch"
+    ],
+    "disputed_categories": [
+      "tool_underutilization"
+    ],
+    "reviewer_categories": [
+      "premature_commit",
+      "retrieval_failure",
+      "verification_skipped",
+      "verifier_mismatch"
+    ]
+  }
+}

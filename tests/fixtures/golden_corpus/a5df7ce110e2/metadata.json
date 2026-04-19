@@ -1,0 +1,28 @@
+{
+  "trial_id_short": "a5df7ce110e2",
+  "trial_id_full": "a5df7ce110e25500b5f67abd79c7c9b6bba96b04353a179f2329f158df18f73e",
+  "model": "claude-opus-4-6",
+  "agent": "cursor-cli",
+  "benchmark": "org_platform",
+  "reward": 0.7796,
+  "passed": true,
+  "has_trajectory": false,
+  "total_turns": 0,
+  "tool_calls_total": 0,
+  "duration_seconds": 386.36288,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=cursor-cli, benchmark=org_platform, passed=True)",
+  "heuristic_categories": [
+    "clean_success",
+    "near_miss",
+    "premature_termination",
+    "incomplete_solution",
+    "insufficient_provenance"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": false,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

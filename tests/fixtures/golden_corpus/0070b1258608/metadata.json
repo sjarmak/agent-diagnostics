@@ -1,0 +1,28 @@
+{
+  "trial_id_short": "0070b1258608",
+  "trial_id_full": "0070b1258608abc6858701121b59e3d3e0927549592b284a286ab924aba41fe8",
+  "model": "claude-opus-4-6",
+  "agent": "claude-code",
+  "benchmark": "sdlc_fix",
+  "reward": 0.0,
+  "passed": false,
+  "has_trajectory": true,
+  "total_turns": 118,
+  "tool_calls_total": 76,
+  "duration_seconds": 629.806588,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=claude-code, benchmark=sdlc_fix, passed=False)",
+  "heuristic_categories": [
+    "query_churn",
+    "premature_commit",
+    "local_remote_mismatch",
+    "multi_repo_scope_failure",
+    "verifier_mismatch"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": false,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}

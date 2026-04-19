@@ -1,0 +1,29 @@
+{
+  "trial_id_short": "068ef6fe2e31",
+  "trial_id_full": "068ef6fe2e316ebb761a6d81d7c2773673733973ce331aa7c273eecba8074535",
+  "model": "claude-haiku-4-5-20251001",
+  "agent": "openhands",
+  "benchmark": "sdlc_build",
+  "reward": 0.1,
+  "passed": true,
+  "has_trajectory": true,
+  "total_turns": 908,
+  "tool_calls_total": 44,
+  "duration_seconds": 994.809098,
+  "trajectory_trim_applied": true,
+  "selection_reason": "stratified sample (agent=openhands, benchmark=sdlc_build, passed=True)",
+  "heuristic_categories": [
+    "query_churn",
+    "edit_verify_loop_failure",
+    "incomplete_solution",
+    "success_via_decomposition",
+    "verification_skipped",
+    "minimal_progress"
+  ],
+  "trajectory_markers": {
+    "has_api_hallucination_marker": false,
+    "has_fabrication_marker": true,
+    "has_destructive_marker": false,
+    "has_credential_marker": false
+  }
+}
