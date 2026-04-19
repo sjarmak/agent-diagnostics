@@ -23,7 +23,7 @@ agent-diagnostics export --format parquet --out data/export/
 
 - `src/agent_diagnostics/` — main package (14 modules, 7k lines)
 - `tests/` — 961 tests, 80%+ coverage
-- `data/export/` ��� shipped Parquet dataset (11,995 trials, 1.5 MB)
+- `data/export/` — shipped `signals.parquet` (11,995 trials, 1.5 MB) + `MANIFEST.json`; `annotations.parquet` / `manifests.parquet` only appear when those JSONLs are populated
 - `docs/queries/` — 5 pre-built SQL analysis queries
 - `docs/design/` — PRD and premortem documents
 

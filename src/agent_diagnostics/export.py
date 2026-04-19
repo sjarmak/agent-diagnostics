@@ -304,24 +304,25 @@ def export_parquet(
     manifests_rows.sort(key=_sort_key_manifests)
 
     # --- Build and write Parquet ---
-    signals_table = _build_signals_table(signals_rows)
-    annotations_table = _build_generic_table(annotations_rows)
-    manifests_table = _build_generic_table(manifests_rows)
+    # Empty tables are skipped rather than written as schemaless (zero-column)
+    # Parquet files.  DuckDB's ``read_parquet`` rejects schemaless files with
+    # "Need at least one non-root column in the file", which would break
+    # downstream queries over the export directory.  Manifests still record
+    # ``row_count`` = 0 for skipped tables; only ``sha256_per_file`` omits them.
+    tables_to_write: list[tuple[str, list[dict[str, Any]], Any]] = [
+        ("signals.parquet", signals_rows, _build_signals_table),
+        ("annotations.parquet", annotations_rows, _build_generic_table),
+        ("manifests.parquet", manifests_rows, _build_generic_table),
+    ]
 
-    signals_pq = out_path / "signals.parquet"
-    annotations_pq = out_path / "annotations.parquet"
-    manifests_pq = out_path / "manifests.parquet"
-
-    _write_parquet(signals_table, signals_pq)
-    _write_parquet(annotations_table, annotations_pq)
-    _write_parquet(manifests_table, manifests_pq)
-
-    # --- Compute checksums ---
-    sha256_per_file = {
-        "signals.parquet": _sha256_file(signals_pq),
-        "annotations.parquet": _sha256_file(annotations_pq),
-        "manifests.parquet": _sha256_file(manifests_pq),
-    }
+    sha256_per_file: dict[str, str] = {}
+    for filename, rows, build_fn in tables_to_write:
+        if not rows:
+            continue
+        table = build_fn(rows)
+        pq_path = out_path / filename
+        _write_parquet(table, pq_path)
+        sha256_per_file[filename] = _sha256_file(pq_path)
 
     # --- Detect versions ---
     schema_version, taxonomy_version = _detect_versions(data_path)

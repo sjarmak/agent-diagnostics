@@ -159,6 +159,52 @@ def test_missing_table_skipped(tmp_path: Path):
     assert rows == [{"one": 1}]
 
 
+def test_unreadable_parquet_skipped(tmp_path: Path, caplog):
+    """An unreadable Parquet file must not break unrelated queries.
+
+    Regression for the shipped stub bug: ``data/export/annotations.parquet``
+    was a 318-byte zero-column Parquet file.  Eagerly registering a view
+    over it caused ``SELECT count(*) FROM signals`` to fail with a cryptic
+    ``Need at least one non-root column`` error.  The query engine must
+    skip unreadable Parquet files and log a warning, so other tables
+    remain queryable.
+    """
+    import logging
+
+    import duckdb
+
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    # Write a valid signals.parquet.
+    signals_path = export_dir / "signals.parquet"
+    con = duckdb.connect(":memory:")
+    con.execute(
+        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
+        f"TO '{signals_path}' (FORMAT PARQUET)"
+    )
+    con.close()
+
+    # Write a zero-column annotations.parquet -- this is the exact shape
+    # the buggy export produced: ``pa.table({})`` has no schema, and
+    # ``read_parquet`` rejects it with "Need at least one non-root column".
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.table({}), export_dir / "annotations.parquet")
+
+    from agent_diagnostics.query import run_query
+
+    with caplog.at_level(logging.WARNING, logger="agent_diagnostics.query"):
+        rows = run_query("SELECT count(*) AS n FROM signals", data_dir=tmp_path)
+
+    assert rows == [{"n": 1}]
+    # A warning about the skipped table should have been logged.
+    assert any(
+        "annotations" in record.getMessage() for record in caplog.records
+    ), "expected a warning mentioning the skipped annotations table"
+
+
 # ---------------------------------------------------------------------------
 # format_table
 # ---------------------------------------------------------------------------
