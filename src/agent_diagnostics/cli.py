@@ -893,20 +893,19 @@ _LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
 def _resolve_log_level(verbose: int, quiet: bool) -> int:
     """Resolve the effective root log level from CLI flags and environment.
 
-    Precedence: ``-q`` > ``-v``/``-vv`` > ``AGENT_DIAGNOSTICS_LOG_LEVEL`` > INFO.
-    Unknown env values fall back to INFO rather than erroring, so a malformed
-    environment never blocks CLI usage.
+    Precedence: ``-q`` > ``-v`` > ``AGENT_DIAGNOSTICS_LOG_LEVEL`` > INFO.
+    Unknown or sub-DEBUG env values fall back to INFO so a malformed or
+    overly permissive environment never enables third-party library logging
+    (which can include ``Authorization`` headers from ``httpx``).
     """
     if quiet:
         return logging.WARNING
-    if verbose >= 2:
+    if verbose >= 1:
         return logging.DEBUG
-    if verbose == 1:
-        return logging.INFO
     env = os.environ.get("AGENT_DIAGNOSTICS_LOG_LEVEL", "").strip().upper()
     if env:
         numeric = logging.getLevelName(env)
-        if isinstance(numeric, int):
+        if isinstance(numeric, int) and numeric >= logging.DEBUG:
             return numeric
     return logging.INFO
 
@@ -937,7 +936,7 @@ def main():
         "--verbose",
         action="count",
         default=0,
-        help="Increase log verbosity: -v=INFO (default), -vv=DEBUG",
+        help="Increase log verbosity (-v: DEBUG). Default level is INFO.",
     )
     parser.add_argument(
         "-q",

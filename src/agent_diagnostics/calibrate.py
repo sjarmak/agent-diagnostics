@@ -489,7 +489,9 @@ def format_markdown(summary: dict[str, Any]) -> str:
     # emitted when at least one category carries the new fields — this keeps
     # the report lean when callers pass a legacy summary dict that predates
     # the calibration extension.
-    has_calibration = any("ece" in m for m in cats.values())
+    has_calibration = any(
+        "ece" in m and "reliability_bins" in m for m in cats.values()
+    )
     if has_calibration:
         lines.append("")
         lines.append("### Calibration")
