@@ -213,7 +213,7 @@ def _signals_columns() -> list[_Column]:
         type_str, nullable = _render_type(tp)
         description = _SIGNALS_DESCRIPTIONS.get(name)
         if description is None:
-            raise KeyError(
+            raise ValueError(
                 f"Missing description for TrialSignals field {name!r} in "
                 f"scripts/gen_schema_docs.py — add it to _SIGNALS_DESCRIPTIONS."
             )
@@ -232,7 +232,7 @@ def _annotations_columns() -> list[_Column]:
         type_str = _ANNOTATIONS_TYPES.get(name)
         description = _ANNOTATIONS_DESCRIPTIONS.get(name)
         if type_str is None or description is None:
-            raise KeyError(
+            raise ValueError(
                 f"Missing type or description for annotation field {name!r} in "
                 f"scripts/gen_schema_docs.py."
             )

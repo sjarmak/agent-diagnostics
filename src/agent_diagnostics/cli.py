@@ -1265,7 +1265,7 @@ def main():
     p_query.add_argument(
         "--format",
         default="table",
-        choices=list(_QUERY_OUTPUT_FORMATS),
+        choices=_QUERY_OUTPUT_FORMATS,
         help="Output format: 'table' (human-readable, default), "
         "'json' (list of objects), 'jsonl' (one object per line, stream-friendly), "
         "or 'csv' (RFC 4180 with header row).",
