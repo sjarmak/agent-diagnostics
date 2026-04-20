@@ -28,7 +28,7 @@ import types
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import get_type_hints
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "schemas"
@@ -142,7 +142,7 @@ _MANIFESTS_TYPES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def _render_type(tp: object) -> tuple[str, bool]:
+def _render_type(tp: Any) -> tuple[str, bool]:
     """Render a type annotation as a ``(display, nullable)`` pair.
 
     Maps Python/typing annotations to DuckDB-style column types that match
@@ -207,7 +207,7 @@ def _signals_columns() -> list[_Column]:
     """Extract signals columns from the TrialSignals TypedDict."""
     from agent_diagnostics.types import TrialSignals
 
-    hints = get_type_hints(TrialSignals)
+    hints = typing.get_type_hints(TrialSignals)
     columns: list[_Column] = []
     for name, tp in hints.items():
         type_str, nullable = _render_type(tp)
