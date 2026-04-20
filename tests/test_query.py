@@ -9,9 +9,63 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "query"
+
+
+# Layout contract for the fixtures below: Parquet files live under
+# ``data_dir/export/<name>.parquet`` (matching how export.py writes them),
+# JSONL files live at ``data_dir/<name>.jsonl``. The resolution order in
+# ``query.py`` prefers Parquet, falling back to JSONL on failure.
+
+
+@pytest.fixture
+def zero_col_annotations_dir(tmp_path: Path) -> Path:
+    """tmp_path seeded with a valid ``signals.parquet`` and a zero-column
+    ``annotations.parquet`` stub — the exact shape older ``export.py``
+    produced (``pa.table({})`` has no schema and ``read_parquet`` rejects
+    it with "Need at least one non-root column").
+
+    Deliberately provides NO ``annotations.jsonl`` fallback so the
+    "unrelated queries survive a skipped zero-column table" scenario
+    stays under test. Callers that need a fallback write one explicitly.
+    """
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    signals_path = export_dir / "signals.parquet"
+    con = duckdb.connect(":memory:")
+    con.execute(
+        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
+        f"TO '{signals_path}' (FORMAT PARQUET)"
+    )
+    con.close()
+
+    pq.write_table(pa.table({}), export_dir / "annotations.parquet")
+    return tmp_path
+
+
+@pytest.fixture
+def corrupt_annotations_dir(tmp_path: Path) -> Path:
+    """tmp_path seeded with a corrupt ``annotations.parquet`` (truncated
+    garbage) and a valid ``annotations.jsonl`` fallback.
+
+    The corrupt-bytes case is unexpected data loss: callers of ``run_query``
+    and ``get_schema`` are expected to log at ERROR and fall through to
+    JSONL, so the fallback is part of the contract under test.
+    """
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+
+    (export_dir / "annotations.parquet").write_bytes(b"not-a-parquet-file")
+    (tmp_path / "annotations.jsonl").write_text(
+        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
+    )
+    return tmp_path
 
 
 # ---------------------------------------------------------------------------
@@ -261,44 +315,23 @@ def test_run_query_unknown_table_passthrough(tmp_path: Path):
     assert not isinstance(exc_info.value, MissingTableError)
 
 
-def test_unreadable_parquet_skipped(tmp_path: Path, caplog):
+def test_unreadable_parquet_skipped(zero_col_annotations_dir: Path, caplog):
     """An unreadable Parquet file must not break unrelated queries.
 
     Regression for the shipped stub bug: ``data/export/annotations.parquet``
-    was a 318-byte zero-column Parquet file.  Eagerly registering a view
+    was a 318-byte zero-column Parquet file. Eagerly registering a view
     over it caused ``SELECT count(*) FROM signals`` to fail with a cryptic
-    ``Need at least one non-root column`` error.  The query engine must
+    ``Need at least one non-root column`` error. The query engine must
     skip unreadable Parquet files and log a warning, so other tables
     remain queryable.
     """
-    import logging
-
-    import duckdb
-
-    export_dir = tmp_path / "export"
-    export_dir.mkdir()
-
-    # Write a valid signals.parquet.
-    signals_path = export_dir / "signals.parquet"
-    con = duckdb.connect(":memory:")
-    con.execute(
-        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
-        f"TO '{signals_path}' (FORMAT PARQUET)"
-    )
-    con.close()
-
-    # Write a zero-column annotations.parquet -- this is the exact shape
-    # the buggy export produced: ``pa.table({})`` has no schema, and
-    # ``read_parquet`` rejects it with "Need at least one non-root column".
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    pq.write_table(pa.table({}), export_dir / "annotations.parquet")
-
     from agent_diagnostics.query import run_query
 
     with caplog.at_level(logging.WARNING, logger="agent_diagnostics.query"):
-        rows = run_query("SELECT count(*) AS n FROM signals", data_dir=tmp_path)
+        rows = run_query(
+            "SELECT count(*) AS n FROM signals",
+            data_dir=zero_col_annotations_dir,
+        )
 
     assert rows == [{"n": 1}]
     # The zero-column stub case should log at WARNING (known issue path),
@@ -313,7 +346,7 @@ def test_unreadable_parquet_skipped(tmp_path: Path, caplog):
 
 
 def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
-    tmp_path: Path, caplog
+    corrupt_annotations_dir: Path, caplog
 ):
     """Corrupt (non-stub) Parquet must log ERROR and fall through to JSONL.
 
@@ -321,26 +354,12 @@ def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
     Any other unreadable-Parquet case is unexpected data loss and must
     surface loudly so it can't be missed in log review.
     """
-    import logging
-
-    export_dir = tmp_path / "export"
-    export_dir.mkdir()
-
-    # Write a corrupt annotations.parquet (truncated garbage).
-    corrupt_path = export_dir / "annotations.parquet"
-    corrupt_path.write_bytes(b"not-a-parquet-file")
-
-    # And a JSONL fallback with real data.
-    jsonl_path = tmp_path / "annotations.jsonl"
-    jsonl_path.write_text(
-        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
-    )
-
     from agent_diagnostics.query import run_query
 
     with caplog.at_level(logging.ERROR, logger="agent_diagnostics.query"):
         rows = run_query(
-            "SELECT count(*) AS n FROM annotations", data_dir=tmp_path
+            "SELECT count(*) AS n FROM annotations",
+            data_dir=corrupt_annotations_dir,
         )
 
     # Fallback to JSONL must have happened.
@@ -362,7 +381,7 @@ def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
 
 
 def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    zero_col_annotations_dir: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """get_schema must skip a zero-column Parquet stub and fall through to JSONL.
 
@@ -372,38 +391,16 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
     for get_schema so the schema-introspection path cannot silently lose
     its fallback behaviour.
     """
-    import duckdb
-
-    export_dir = tmp_path / "export"
-    export_dir.mkdir()
-
-    # Write a valid signals.parquet so at least one table is readable.
-    signals_path = export_dir / "signals.parquet"
-    con = duckdb.connect(":memory:")
-    con.execute(
-        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
-        f"TO '{signals_path}' (FORMAT PARQUET)"
-    )
-    con.close()
-
-    # Zero-column annotations.parquet stub — the exact shape older exports
-    # produced. read_parquet rejects it with "Need at least one non-root
-    # column".
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    pq.write_table(pa.table({}), export_dir / "annotations.parquet")
-
-    # JSONL fallback for annotations so get_schema can still describe it.
-    jsonl_path = tmp_path / "annotations.jsonl"
-    jsonl_path.write_text(
+    # The fixture deliberately omits annotations.jsonl; get_schema's fallback
+    # is exactly what this test exercises, so we add one explicitly here.
+    (zero_col_annotations_dir / "annotations.jsonl").write_text(
         '{"trial_id": "t1", "category_name": "exception_crash"}\n'
     )
 
     from agent_diagnostics.query import get_schema
 
     with caplog.at_level(logging.WARNING, logger="agent_diagnostics.query"):
-        output = get_schema(tmp_path, fmt="json")
+        output = get_schema(zero_col_annotations_dir, fmt="json")
 
     schema = json.loads(output)
 
@@ -428,30 +425,17 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
 
 
 def test_get_schema_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    corrupt_annotations_dir: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Corrupt Parquet in the get_schema path must log ERROR and fall through.
 
     Mirrors ``test_corrupt_parquet_logs_error_and_falls_through_to_jsonl``
     but exercises ``get_schema`` instead of ``run_query``.
     """
-    export_dir = tmp_path / "export"
-    export_dir.mkdir()
-
-    # Truncated garbage masquerading as Parquet.
-    corrupt_path = export_dir / "annotations.parquet"
-    corrupt_path.write_bytes(b"not-a-parquet-file")
-
-    # JSONL fallback with real data.
-    jsonl_path = tmp_path / "annotations.jsonl"
-    jsonl_path.write_text(
-        '{"trial_id": "t1", "category_name": "exception_crash"}\n'
-    )
-
     from agent_diagnostics.query import get_schema
 
     with caplog.at_level(logging.ERROR, logger="agent_diagnostics.query"):
-        output = get_schema(tmp_path, fmt="json")
+        output = get_schema(corrupt_annotations_dir, fmt="json")
 
     schema = json.loads(output)
 
