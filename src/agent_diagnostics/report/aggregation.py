@@ -200,10 +200,7 @@ def _category_by_config(annotations: list[dict]) -> dict[str, dict[str, int]]:
             if name:
                 result[cfg][name] += 1
     # Convert counters to plain dicts, sorted
-    return {
-        k: dict(sorted(v.items(), key=lambda x: -x[1]))
-        for k, v in sorted(result.items())
-    }
+    return {k: dict(sorted(v.items(), key=lambda x: -x[1])) for k, v in sorted(result.items())}
 
 
 def _category_by_suite(annotations: list[dict]) -> dict[str, dict[str, int]]:
@@ -310,9 +307,7 @@ def _paired_comparison(annotations: list[dict]) -> list[dict]:
                     "config_a": cfg_a,
                     "config_b": cfg_b,
                     "shared_tasks": len(shared),
-                    "introduced_by_a": [
-                        {"category": c, "delta": d} for c, d in introduced_by_a
-                    ],
+                    "introduced_by_a": [{"category": c, "delta": d} for c, d in introduced_by_a],
                     "introduced_by_b": [
                         {"category": c, "delta": abs(d)} for c, d in introduced_by_b
                     ],

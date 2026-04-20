@@ -217,9 +217,7 @@ def _scan_trajectory_markers(traj: dict[str, Any]) -> dict[str, bool]:
     except TypeError:
         return {}
     return {
-        "has_api_hallucination_marker": any(
-            m in text for m in _API_HALLUCINATION_MARKERS
-        ),
+        "has_api_hallucination_marker": any(m in text for m in _API_HALLUCINATION_MARKERS),
         "has_fabrication_marker": any(m in text for m in _FABRICATION_MARKERS),
         "has_destructive_marker": any(m in text for m in _DESTRUCTIVE_MARKERS),
         "has_credential_marker": any(m in text for m in _CREDENTIAL_MARKERS),
@@ -301,12 +299,8 @@ def _trim_trajectory(traj: dict[str, Any]) -> tuple[dict[str, Any], bool]:
 
     steps = traj.get("steps")
     if isinstance(steps, list):
-        shrunk_steps = [
-            _shrink_step(s) if isinstance(s, dict) else s for s in steps
-        ]
-        if any(
-            isinstance(s, dict) and s.get("_corpus_step_shrunk") for s in shrunk_steps
-        ):
+        shrunk_steps = [_shrink_step(s) if isinstance(s, dict) else s for s in steps]
+        if any(isinstance(s, dict) and s.get("_corpus_step_shrunk") for s in shrunk_steps):
             trim_applied = True
         traj = dict(traj)
         traj["steps"] = shrunk_steps
@@ -421,9 +415,7 @@ def select_trials(
     # Round-robin ordering: every (agent, passed_flag) pair gets exactly
     # one slot per round.  This guarantees balance across both axes.
     round_order: list[tuple[str, bool]] = [
-        (agent, passed_flag)
-        for agent in agents_all
-        for passed_flag in (False, True)
+        (agent, passed_flag) for agent in agents_all for passed_flag in (False, True)
     ]
 
     def _pick_from_subset(subset_keys: list[tuple[str, str, bool]]) -> bool:
@@ -619,8 +611,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"  agents: {sorted(selection.agents)}", file=sys.stderr)
     print(
-        f"  benchmarks: {len(selection.benchmarks)} "
-        f"({sorted(selection.benchmarks)[:5]}...)",
+        f"  benchmarks: {len(selection.benchmarks)} ({sorted(selection.benchmarks)[:5]}...)",
         file=sys.stderr,
     )
     print(f"  heuristic categories: {sorted(selection.categories)}", file=sys.stderr)
@@ -631,9 +622,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args.output.mkdir(parents=True, exist_ok=True)
     for cand in selection.candidates:
-        trial_dir = write_candidate(
-            cand, args.output, valid_category_names_set=valid_names
-        )
+        trial_dir = write_candidate(cand, args.output, valid_category_names_set=valid_names)
         print(f"  wrote {trial_dir}", file=sys.stderr)
 
     # Write a manifest summarizing the corpus composition.

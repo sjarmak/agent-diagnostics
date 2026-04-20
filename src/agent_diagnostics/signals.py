@@ -203,12 +203,9 @@ def _parse_trajectory(
 
     # Read-capable tool names: Read + any code_nav tool that reads files
     _read_tools = (
-        frozenset({"Read", "read_file", "mcp__sourcegraph__read_file"})
-        | registry.code_nav_tools
+        frozenset({"Read", "read_file", "mcp__sourcegraph__read_file"}) | registry.code_nav_tools
     )
-    _edit_tools_for_files = (
-        frozenset({"Edit", "Write", "file_write"}) | registry.edit_tools
-    )
+    _edit_tools_for_files = frozenset({"Edit", "Write", "file_write"}) | registry.edit_tools
 
     for step in steps:
         step_has_error = False
@@ -258,11 +255,7 @@ def _parse_trajectory(
                         patch_size_lines += content.count("\n") + 1
 
             # Retry detection: same function + same args as previous call
-            args_key = (
-                json.dumps(args, sort_keys=True)
-                if isinstance(args, dict)
-                else str(args)
-            )
+            args_key = json.dumps(args, sort_keys=True) if isinstance(args, dict) else str(args)
             call_key = (fn, args_key)
             if call_key == prev_call_key:
                 retry_count += 1
@@ -474,9 +467,7 @@ def _resolve_benchmark_from_directory(trial_dir: Path) -> str | None:
             return parsed
 
     # Substring fallback for names without a structural marker.
-    parts_to_check = (
-        trial_dir.parts[-4:] if len(trial_dir.parts) >= 4 else trial_dir.parts
-    )
+    parts_to_check = trial_dir.parts[-4:] if len(trial_dir.parts) >= 4 else trial_dir.parts
     for part in parts_to_check:
         part_lower = part.lower()
         for pattern, benchmark in _DIRECTORY_BENCHMARK_PATTERNS.items():
@@ -661,9 +652,7 @@ def extract_signals(
                 rate_limited = "rate_limit" in exc_str or "rate limit" in exc_str
             elif isinstance(exc_info, str) and exc_info.strip():
                 exception_crashed = True
-                rate_limited = (
-                    "rate_limit" in exc_info.lower() or "rate limit" in exc_info.lower()
-                )
+                rate_limited = "rate_limit" in exc_info.lower() or "rate limit" in exc_info.lower()
 
     # --- Trajectory parsing ---
     traj_signals = _parse_trajectory(traj, tool_registry)

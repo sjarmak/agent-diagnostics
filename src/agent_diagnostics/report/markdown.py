@@ -58,9 +58,7 @@ def _render_summary_table(
         lines.append(separator)
         for row in rows:
             top = (
-                ", ".join(
-                    f"{_md_cell(f['name'])} ({f['count']})" for f in row["top_failures"]
-                )
+                ", ".join(f"{_md_cell(f['name'])} ({f['count']})" for f in row["top_failures"])
                 or "—"
             )
             mean_reward = row.get("mean_reward")
@@ -112,9 +110,7 @@ def _render_comparative_sections(
         for cells in matrix.values():
             benchmarks_set.update(cells.keys())
         benchmarks = sorted(benchmarks_set)
-        lines.append(
-            f"Values are pass rates; `†` marks cells with n < {LOW_CONFIDENCE_N} trials."
-        )
+        lines.append(f"Values are pass rates; `†` marks cells with n < {LOW_CONFIDENCE_N} trials.")
         lines.append("")
         lines.append("| Agent | " + " | ".join(_md_cell(b) for b in benchmarks) + " |")
         lines.append("|-------|" + "|".join(["-------"] * len(benchmarks)) + "|")
@@ -145,12 +141,8 @@ def _render_comparative_sections(
     if divergences:
         lines.append("Largest pairwise pass-rate delta per benchmark across agents.")
         lines.append("")
-        lines.append(
-            "| Benchmark | Delta | Higher | Lower | Higher Rate | Lower Rate |"
-        )
-        lines.append(
-            "|-----------|-------|--------|-------|-------------|------------|"
-        )
+        lines.append("| Benchmark | Delta | Higher | Lower | Higher Rate | Lower Rate |")
+        lines.append("|-----------|-------|--------|-------|-------------|------------|")
         for row in divergences:
             lines.append(
                 f"| {_md_cell(row['benchmark'])} | {row['max_delta']:.1%} | "
@@ -302,9 +294,7 @@ def _render_markdown(
     if paired_comparisons:
         lines.append("## Configuration Comparison (Paired)")
         lines.append("")
-        lines.append(
-            "Compares failure-mode categories between config pairs on shared tasks."
-        )
+        lines.append("Compares failure-mode categories between config pairs on shared tasks.")
         lines.append(
             "Deltas show how many more shared tasks had a category in one config vs the other."
         )
@@ -356,10 +346,7 @@ def _render_markdown(
         for dim_name, info in sorted(
             dimension_summary.items(), key=lambda x: -x[1]["trial_count"]
         ):
-            lines.append(
-                f"| {dim_name} | {info['trial_count']:,} "
-                f"| {info['failure_rate']:.1%} |"
-            )
+            lines.append(f"| {dim_name} | {info['trial_count']:,} | {info['failure_rate']:.1%} |")
         lines.append("")
 
     # Top Failure Categories

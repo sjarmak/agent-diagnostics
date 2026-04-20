@@ -1,13 +1,10 @@
 """Smoke test for agent-diagnostics PyPI package."""
 
 from agent_diagnostics import (
-    load_taxonomy,
-    annotate_trial,
-    TrialSignals,
-    ToolRegistry,
     DEFAULT_REGISTRY,
-    extract_signals,
-    generate_report,
+    TrialSignals,
+    annotate_trial,
+    load_taxonomy,
 )
 
 # Taxonomy loads with 23 categories

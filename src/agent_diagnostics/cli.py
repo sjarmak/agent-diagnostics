@@ -142,8 +142,7 @@ def cmd_extract(args):
     if cache is not None:
         stats = cache.stats
         suffix = (
-            f" (cache: {stats['hits']} hits, {stats['misses']} misses, "
-            f"{stats['entries']} entries)"
+            f" (cache: {stats['hits']} hits, {stats['misses']} misses, {stats['entries']} entries)"
         )
     logger.info("Extracted signals from %d trials%s", len(signals), suffix)
 
@@ -344,8 +343,7 @@ def cmd_llm_annotate(args):
     has_trajectory = [
         s
         for s in signals_list
-        if s.get("trial_path")
-        and (Path(s["trial_path"]) / "agent" / "trajectory.json").is_file()
+        if s.get("trial_path") and (Path(s["trial_path"]) / "agent" / "trajectory.json").is_file()
     ]
     if not has_trajectory:
         logger.error("no trials with trajectory files found")
@@ -400,9 +398,7 @@ def cmd_llm_annotate(args):
             "task_id": sig.get("task_id") or "unknown",
             "trial_path": sig.get("trial_path") or "",
             "reward": float(reward_val) if reward_val is not None else 0.0,
-            "passed": (
-                bool(sig.get("passed")) if sig.get("passed") is not None else False
-            ),
+            "passed": (bool(sig.get("passed")) if sig.get("passed") is not None else False),
             "categories": categories,
             "annotated_at": now,
             "annotation_result_status": status,
@@ -583,8 +579,7 @@ def cmd_ensemble(args):
     total_cats = sum(len(a["categories"]) for a in result["annotations"])
     tiers = result.get("tier_counts", {})
     logger.info(
-        "Ensemble: %d assignments across %d trials "
-        "(heuristic=%d, classifier=%d). Output: %s",
+        "Ensemble: %d assignments across %d trials (heuristic=%d, classifier=%d). Output: %s",
         total_cats,
         n,
         tiers.get("heuristic", 0),
@@ -968,8 +963,7 @@ def cmd_validate(args):
             name = cat.get("name", "")
             if name not in valid_names:
                 errors.append(
-                    f"Annotation [{i}] ({ann.get('task_id', '?')}): "
-                    f"unknown category '{name}'"
+                    f"Annotation [{i}] ({ann.get('task_id', '?')}): unknown category '{name}'"
                 )
 
     if errors:
@@ -1064,12 +1058,8 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # extract
-    p_extract = subparsers.add_parser(
-        "extract", help="Extract signals from trial directories"
-    )
-    p_extract.add_argument(
-        "--runs-dir", required=True, help="Path to runs/_raw directory"
-    )
+    p_extract = subparsers.add_parser("extract", help="Extract signals from trial directories")
+    p_extract.add_argument("--runs-dir", required=True, help="Path to runs/_raw directory")
     p_extract.add_argument("--output", required=True, help="Output signals JSON file")
     p_extract.add_argument(
         "--cache-dir",
@@ -1084,9 +1074,7 @@ def main():
         "annotate", help="Generate heuristic annotations from signals"
     )
     p_annotate.add_argument("--signals", required=True, help="Input signals JSON file")
-    p_annotate.add_argument(
-        "--output", required=True, help="Output annotations JSON file"
-    )
+    p_annotate.add_argument("--output", required=True, help="Output annotations JSON file")
     p_annotate.add_argument(
         "--annotations-out",
         default=None,
@@ -1095,12 +1083,8 @@ def main():
     p_annotate.set_defaults(func=cmd_annotate)
 
     # report
-    p_report = subparsers.add_parser(
-        "report", help="Generate reliability report from annotations"
-    )
-    p_report.add_argument(
-        "--annotations", required=True, help="Input annotations JSON file"
-    )
+    p_report = subparsers.add_parser("report", help="Generate reliability report from annotations")
+    p_report.add_argument("--annotations", required=True, help="Input annotations JSON file")
     # Canonical flag is --output-dir (dir-writing commands use --output-dir;
     # file-writing commands use --output). --output is kept as a deprecated
     # alias for 0.8.x compatibility, slated for removal in 1.0.
@@ -1150,15 +1134,9 @@ def main():
     p_llm.set_defaults(func=cmd_llm_annotate)
 
     # train
-    p_train = subparsers.add_parser(
-        "train", help="Train classifiers from LLM-labeled data"
-    )
-    p_train.add_argument(
-        "--labels", required=True, help="LLM annotation JSON (training labels)"
-    )
-    p_train.add_argument(
-        "--signals", required=True, help="Full signals JSON (features)"
-    )
+    p_train = subparsers.add_parser("train", help="Train classifiers from LLM-labeled data")
+    p_train.add_argument("--labels", required=True, help="LLM annotation JSON (training labels)")
+    p_train.add_argument("--signals", required=True, help="Full signals JSON (features)")
     p_train.add_argument("--output", required=True, help="Output model JSON file")
     p_train.add_argument(
         "--min-positive",
@@ -1166,12 +1144,8 @@ def main():
         default=3,
         help="Min positive examples per category (default: 3)",
     )
-    p_train.add_argument(
-        "--lr", type=float, default=0.1, help="Learning rate (default: 0.1)"
-    )
-    p_train.add_argument(
-        "--epochs", type=int, default=300, help="Training epochs (default: 300)"
-    )
+    p_train.add_argument("--lr", type=float, default=0.1, help="Learning rate (default: 0.1)")
+    p_train.add_argument("--epochs", type=int, default=300, help="Training epochs (default: 300)")
     p_train.add_argument(
         "--eval", action="store_true", help="Evaluate on training data after training"
     )
@@ -1182,12 +1156,8 @@ def main():
         "predict", help="Predict categories using trained classifier"
     )
     p_predict.add_argument("--model", required=True, help="Trained model JSON file")
-    p_predict.add_argument(
-        "--signals", required=True, help="Signals JSON to predict on"
-    )
-    p_predict.add_argument(
-        "--output", required=True, help="Output annotations JSON file"
-    )
+    p_predict.add_argument("--signals", required=True, help="Signals JSON to predict on")
+    p_predict.add_argument("--output", required=True, help="Output annotations JSON file")
     p_predict.add_argument(
         "--threshold",
         type=float,
@@ -1206,12 +1176,8 @@ def main():
         "ensemble", help="Run two-tier ensemble annotation (heuristic + classifier)"
     )
     p_ensemble.add_argument("--signals", required=True, help="Signals JSON file")
-    p_ensemble.add_argument(
-        "--model", required=True, help="Trained classifier model JSON"
-    )
-    p_ensemble.add_argument(
-        "--output", required=True, help="Output annotations JSON file"
-    )
+    p_ensemble.add_argument("--model", required=True, help="Trained classifier model JSON")
+    p_ensemble.add_argument("--output", required=True, help="Output annotations JSON file")
     p_ensemble.add_argument(
         "--threshold",
         type=float,
@@ -1241,9 +1207,7 @@ def main():
     p_ingest.add_argument(
         "--manifest", default=None, help="MANIFEST.json for benchmark resolution"
     )
-    p_ingest.add_argument(
-        "--state", default=None, help="State JSON file for incremental mode"
-    )
+    p_ingest.add_argument("--state", default=None, help="State JSON file for incremental mode")
     p_ingest.set_defaults(func=cmd_ingest)
 
     # calibrate
@@ -1296,9 +1260,7 @@ def main():
     p_query.set_defaults(func=cmd_query)
 
     # export
-    p_export = subparsers.add_parser(
-        "export", help="Export JSONL data to Parquet with manifest"
-    )
+    p_export = subparsers.add_parser("export", help="Export JSONL data to Parquet with manifest")
     p_export.add_argument(
         "--format",
         default="parquet",
@@ -1319,9 +1281,7 @@ def main():
 
     # pipeline
     p_pipeline = subparsers.add_parser("pipeline", help="Pipeline management commands")
-    pipeline_sub = p_pipeline.add_subparsers(
-        dest="pipeline_command", help="Pipeline subcommands"
-    )
+    pipeline_sub = p_pipeline.add_subparsers(dest="pipeline_command", help="Pipeline subcommands")
     p_pipeline_run = pipeline_sub.add_parser(
         "run", help="Run stale stages declared in pipeline.toml"
     )
@@ -1339,9 +1299,7 @@ def main():
 
     # manifest
     p_manifest = subparsers.add_parser("manifest", help="Manifest management commands")
-    manifest_sub = p_manifest.add_subparsers(
-        dest="manifest_command", help="Manifest subcommands"
-    )
+    manifest_sub = p_manifest.add_subparsers(dest="manifest_command", help="Manifest subcommands")
     p_manifest_refresh = manifest_sub.add_parser(
         "refresh", help="Rewrite manifests.jsonl from signals data"
     )

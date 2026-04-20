@@ -100,9 +100,7 @@ def annotate_trial_api(
             return AnnotationError(reason="LLM returned unexpected type")
         validated = validate_categories(categories, trial_dir)
         annotation = _to_annotation_result(validated)
-        _pkg.put_cached(
-            DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation)
-        )
+        _pkg.put_cached(DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation))
         return annotation
     except Exception as exc:
         logger.error("API error annotating %s: %s", trial_dir, exc)
@@ -166,9 +164,7 @@ def annotate_batch_api(
                 elif isinstance(parsed, list):
                     categories = parsed
                 else:
-                    return idx, AnnotationError(
-                        reason="LLM returned unexpected top-level type"
-                    )
+                    return idx, AnnotationError(reason="LLM returned unexpected top-level type")
                 validated = validate_categories(categories, trial_dir)
                 return idx, _to_annotation_result(validated)
             except json.JSONDecodeError as exc:

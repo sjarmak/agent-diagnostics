@@ -105,9 +105,7 @@ def validate_annotation_categories(annotation_dict: dict) -> None:
     categories = annotation_dict.get("categories", [])
     invalid = [cat["name"] for cat in categories if cat["name"] not in valid]
     if invalid:
-        raise ValueError(
-            f"Invalid category names not in taxonomy: {', '.join(sorted(invalid))}"
-        )
+        raise ValueError(f"Invalid category names not in taxonomy: {', '.join(sorted(invalid))}")
 
 
 def get_schema_path() -> Path:

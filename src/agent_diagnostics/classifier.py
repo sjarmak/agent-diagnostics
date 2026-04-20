@@ -104,9 +104,7 @@ def _scale(features_matrix: list[list[float]]) -> tuple[list[float], list[float]
     return means, stds
 
 
-def _standardize(
-    row: list[float], means: list[float], stds: list[float]
-) -> list[float]:
+def _standardize(row: list[float], means: list[float], stds: list[float]) -> list[float]:
     return [(row[j] - means[j]) / stds[j] for j in range(len(row))]
 
 
@@ -459,11 +457,7 @@ def evaluate(
 
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if (precision + recall) > 0
-            else 0.0
-        )
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
         results[cat] = {
             "tp": tp,
@@ -497,9 +491,7 @@ def format_eval_markdown(eval_results: dict, model: dict) -> str:
     for cat in sorted(eval_results, key=lambda c: -eval_results[c].get("f1", -1)):
         r = eval_results[cat]
         if r.get("status") == "no_classifier":
-            lines.append(
-                f"| {cat} | — | — | {r['positive_in_eval']} " f"| — | — | — | no clf |"
-            )
+            lines.append(f"| {cat} | — | — | {r['positive_in_eval']} | — | — | — | no clf |")
             continue
         clf = model["classifiers"].get(cat, {})
         lines.append(

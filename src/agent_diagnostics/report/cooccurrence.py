@@ -93,9 +93,7 @@ def co_occurrence_matrix(annotations: list[dict]) -> dict[str, dict[str, float]]
     return matrix
 
 
-def dimension_aggregation(
-    annotations: list[dict], taxonomy: dict
-) -> dict[str, dict[str, Any]]:
+def dimension_aggregation(annotations: list[dict], taxonomy: dict) -> dict[str, dict[str, Any]]:
     """Roll up categories to parent dimensions and compute per-dimension failure rates.
 
     Parameters

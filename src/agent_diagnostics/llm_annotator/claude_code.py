@@ -42,9 +42,7 @@ def _find_claude_cli() -> str:
     return path
 
 
-def _claude_cli_argv(
-    claude_bin: str, schema_str: str, model_alias: str, prompt: str
-) -> list[str]:
+def _claude_cli_argv(claude_bin: str, schema_str: str, model_alias: str, prompt: str) -> list[str]:
     """Build the argv for a ``claude -p`` invocation with structured JSON output."""
     return [
         claude_bin,
@@ -113,9 +111,7 @@ def annotate_trial_claude_code(
                 proc_result.returncode,
                 proc_result.stderr[:500],
             )
-            return AnnotationError(
-                reason=f"claude CLI rc={proc_result.returncode}"
-            )
+            return AnnotationError(reason=f"claude CLI rc={proc_result.returncode}")
 
         envelope = json.loads(proc_result.stdout)
         categories = _parse_claude_response(envelope)
@@ -123,9 +119,7 @@ def annotate_trial_claude_code(
             return AnnotationError(reason="Failed to parse claude response")
         validated = validate_categories(categories, trial_dir)
         annotation = _to_annotation_result(validated)
-        _pkg.put_cached(
-            DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation)
-        )
+        _pkg.put_cached(DEFAULT_CACHE_DIR, key, validated, is_error=_is_error(annotation))
         return annotation
 
     except subprocess.TimeoutExpired:
@@ -154,9 +148,7 @@ async def _annotate_one_claude_code(
     with their reason intact instead of being silently unwrapped to ``[]``.
     """
     async with sem:
-        instruction = _read_text(
-            trial_dir / "agent" / "instruction.txt", max_chars=4000
-        )
+        instruction = _read_text(trial_dir / "agent" / "instruction.txt", max_chars=4000)
         traj = _load_json(trial_dir / "agent" / "trajectory.json")
         truncated = truncate_trajectory(traj, first_n=30, last_n=10)
         prompt = build_prompt(instruction, truncated, signals, taxonomy)
@@ -178,16 +170,12 @@ async def _annotate_one_claude_code(
                     trial_dir,
                     stderr.decode()[:500],
                 )
-                return idx, AnnotationError(
-                    reason=f"claude CLI rc={proc.returncode}"
-                )
+                return idx, AnnotationError(reason=f"claude CLI rc={proc.returncode}")
 
             envelope = json.loads(stdout.decode())
             categories = _parse_claude_response(envelope)
             if categories is None:
-                return idx, AnnotationError(
-                    reason="Failed to parse claude response"
-                )
+                return idx, AnnotationError(reason="Failed to parse claude response")
             validated = validate_categories(categories, trial_dir)
             return idx, _to_annotation_result(validated)
 

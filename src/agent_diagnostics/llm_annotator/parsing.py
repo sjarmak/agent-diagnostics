@@ -109,9 +109,7 @@ def _parse_claude_response(envelope: dict) -> list[dict] | None:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             return None
-        categories = (
-            parsed.get("categories", parsed) if isinstance(parsed, dict) else parsed
-        )
+        categories = parsed.get("categories", parsed) if isinstance(parsed, dict) else parsed
 
     if not isinstance(categories, list):
         return None

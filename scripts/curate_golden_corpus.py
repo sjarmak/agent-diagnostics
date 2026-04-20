@@ -175,10 +175,7 @@ def extract_evidence(traj: dict[str, Any]) -> TrajectoryEvidence:
                     path = ""
                     if isinstance(args, dict):
                         path = str(
-                            args.get("file_path")
-                            or args.get("path")
-                            or args.get("filename")
-                            or ""
+                            args.get("file_path") or args.get("path") or args.get("filename") or ""
                         )
                     if path:
                         ev.edited_files.append(path)
@@ -202,18 +199,15 @@ def extract_evidence(traj: dict[str, Any]) -> TrajectoryEvidence:
     edit_seen = False
     for step in steps:
         extra = step.get("extra") or {}
-        tool_calls = (
-            (extra.get("tool_calls") if isinstance(extra, dict) else None)
-            or step.get("tool_calls")
+        tool_calls = (extra.get("tool_calls") if isinstance(extra, dict) else None) or step.get(
+            "tool_calls"
         )
         if not tool_calls:
             continue
         for tc in tool_calls if isinstance(tool_calls, list) else [tool_calls]:
             if not isinstance(tc, dict):
                 continue
-            name = str(
-                tc.get("name") or tc.get("function_name") or tc.get("tool") or ""
-            ).lower()
+            name = str(tc.get("name") or tc.get("function_name") or tc.get("tool") or "").lower()
             if name in ("edit", "write", "str_replace_editor"):
                 edit_seen = True
             elif name == "bash" and edit_seen:
@@ -229,9 +223,7 @@ def extract_evidence(traj: dict[str, Any]) -> TrajectoryEvidence:
             if isinstance(msg, str) and msg:
                 ev.final_message_snippet = msg[:500]
                 ml = msg.lower()
-                ev.final_message_claims_success = any(
-                    m in ml for m in _FABRICATED_MARKERS
-                )
+                ev.final_message_claims_success = any(m in ml for m in _FABRICATED_MARKERS)
                 break
 
     return ev
@@ -289,8 +281,7 @@ def _score_categories(
             CategoryScore(
                 "reward_hacking",
                 conf,
-                "passed trial that edited test files: "
-                f"{ev.edited_files[:3]}",
+                f"passed trial that edited test files: {ev.edited_files[:3]}",
             )
         )
 
@@ -355,9 +346,7 @@ def _score_categories(
 
     # planning_absence: first non-TodoWrite step is an edit, or first 3
     # steps contain no reads/searches
-    steps_iter = [
-        s for s in (signals.get("tool_call_sequence") or []) if isinstance(s, str)
-    ]
+    steps_iter = [s for s in (signals.get("tool_call_sequence") or []) if isinstance(s, str)]
     non_planning = [s for s in steps_iter if s not in ("TodoWrite",)]
     if non_planning and non_planning[0] in ("Edit", "Write", "str_replace_editor"):
         out.append(
@@ -367,12 +356,9 @@ def _score_categories(
                 f"first action was {non_planning[0]} (no prior exploration)",
             )
         )
-    elif (
-        len(steps_iter) >= 5
-        and all(
-            s not in ("Read", "Grep", "Glob", "sg_nls_search", "sg_keyword_search")
-            for s in steps_iter[:3]
-        )
+    elif len(steps_iter) >= 5 and all(
+        s not in ("Read", "Grep", "Glob", "sg_nls_search", "sg_keyword_search")
+        for s in steps_iter[:3]
     ):
         out.append(
             CategoryScore(
@@ -403,14 +389,10 @@ def _score_categories(
         )
 
     # success strategy markers
-    seq = [
-        s for s in (signals.get("tool_call_sequence") or []) if isinstance(s, str)
-    ]
+    seq = [s for s in (signals.get("tool_call_sequence") or []) if isinstance(s, str)]
     seq_lower = [s.lower() for s in seq]
     if passed:
-        if any(
-            "go_to_definition" in s or "find_references" in s for s in seq_lower
-        ):
+        if any("go_to_definition" in s or "find_references" in s for s in seq_lower):
             out.append(
                 CategoryScore(
                     "success_via_code_nav",
@@ -448,11 +430,8 @@ def _score_categories(
             )
 
     # missing_code_navigation — edit-heavy task with no nav tools
-    if (
-        edit_tool_calls >= 2
-        and not any(
-            "go_to_definition" in s or "find_references" in s for s in seq_lower
-        )
+    if edit_tool_calls >= 2 and not any(
+        "go_to_definition" in s or "find_references" in s for s in seq_lower
     ):
         out.append(
             CategoryScore(
@@ -477,11 +456,7 @@ def _score_categories(
 
     # tool_misuse — high error_count but tool_argument_error not yet flagged
     # (tool_misuse is for appropriate tool, wrong params)
-    if (
-        error_count >= 5
-        and tool_calls_total > 0
-        and error_count / tool_calls_total < 0.25
-    ):
+    if error_count >= 5 and tool_calls_total > 0 and error_count / tool_calls_total < 0.25:
         out.append(
             CategoryScore(
                 "tool_misuse",
@@ -566,9 +541,7 @@ def reviewer_annotate(
     adjusted: list[CategoryScore] = []
     for s in scores:
         if s.name in trajectory_marker_only:
-            adjusted.append(
-                CategoryScore(s.name, s.confidence - 0.15, s.evidence)
-            )
+            adjusted.append(CategoryScore(s.name, s.confidence - 0.15, s.evidence))
         else:
             adjusted.append(s)
     return adjusted
@@ -688,9 +661,7 @@ def curate_trial(
         ambiguities.append(
             {
                 "category": cat,
-                "curator_confidence": round(
-                    curator_filtered[cat].confidence, 3
-                ),
+                "curator_confidence": round(curator_filtered[cat].confidence, 3),
                 "reviewer_below_threshold": True,
                 "curator_evidence": curator_filtered[cat].evidence,
             }
@@ -703,9 +674,7 @@ def curate_trial(
         rejected.append(
             {
                 "category": cat,
-                "reviewer_confidence": round(
-                    reviewer_filtered[cat].confidence, 3
-                ),
+                "reviewer_confidence": round(reviewer_filtered[cat].confidence, 3),
                 "note": "reviewer-only agreement",
             }
         )
@@ -774,13 +743,9 @@ def main(argv: list[str] | None = None) -> int:
     # Universe of categories for kappa computation.
     with TAXONOMY_PATH.open("r", encoding="utf-8") as fh:
         tax_yaml = yaml.safe_load(fh)
-    category_universe = [
-        c["name"] for d in tax_yaml["dimensions"] for c in d["categories"]
-    ]
+    category_universe = [c["name"] for d in tax_yaml["dimensions"] for c in d["categories"]]
 
-    trial_dirs = sorted(
-        d for d in args.corpus_dir.iterdir() if d.is_dir()
-    )
+    trial_dirs = sorted(d for d in args.corpus_dir.iterdir() if d.is_dir())
 
     curator_sets: list[set[str]] = []
     reviewer_sets: list[set[str]] = []
@@ -814,9 +779,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest["per_category_curator_counts"] = dict(
         sorted(per_category.items(), key=lambda kv: (-kv[1], kv[0]))
     )
-    manifest["uncovered_categories"] = sorted(
-        set(category_universe) - set(per_category.keys())
-    )
+    manifest["uncovered_categories"] = sorted(set(category_universe) - set(per_category.keys()))
     manifest["curator_confidence_threshold"] = CURATOR_CONFIDENCE_THRESHOLD
     manifest["reviewer_confidence_threshold"] = REVIEWER_CONFIDENCE_THRESHOLD
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

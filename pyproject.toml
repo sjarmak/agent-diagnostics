@@ -50,6 +50,14 @@ line-length = 99
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 
+[tool.ruff.lint.per-file-ignores]
+# Docstring contains a TOML pipeline example with long command strings that
+# must remain verbatim so users can copy-paste them.
+"src/agent_diagnostics/pipeline.py" = ["E501"]
+# Fixture evidence sentences shipped as golden test data for the fake LLM
+# backend; wrapping them would churn every fixture with no readability gain.
+"tests/fake_llm_backend.py" = ["E501"]
+
 [tool.coverage.run]
 source = ["agent_diagnostics"]
 

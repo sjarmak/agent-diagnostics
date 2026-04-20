@@ -136,9 +136,7 @@ def _validate_pairs(
         raise ValueError("empty input: no predictions to score")
     for conf, obs in items:
         if not (0.0 <= conf <= 1.0):
-            raise ValueError(
-                f"confidence must be in [0, 1], got {conf!r}"
-            )
+            raise ValueError(f"confidence must be in [0, 1], got {conf!r}")
         if obs not in (0, 1):
             raise ValueError(f"observed label must be 0 or 1, got {obs!r}")
     return items
@@ -284,12 +282,10 @@ def reliability_diagram(
     bin_conf_sum, bin_correct_sum, bin_count = _bin_pairs(items, n_bins)
 
     mean_confidence = [
-        (bin_conf_sum[i] / bin_count[i]) if bin_count[i] else 0.0
-        for i in range(n_bins)
+        (bin_conf_sum[i] / bin_count[i]) if bin_count[i] else 0.0 for i in range(n_bins)
     ]
     accuracy = [
-        (bin_correct_sum[i] / bin_count[i]) if bin_count[i] else 0.0
-        for i in range(n_bins)
+        (bin_correct_sum[i] / bin_count[i]) if bin_count[i] else 0.0 for i in range(n_bins)
     ]
 
     return ReliabilityDiagram(
@@ -401,11 +397,7 @@ def compare_annotations(
 
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if (precision + recall) > 0
-            else 0.0
-        )
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
         # ``all_cats`` is built from the shared trials, so every category
         # reaches this point with at least one paired observation.
@@ -503,9 +495,7 @@ def format_markdown(summary: dict[str, Any]) -> str:
     # emitted when at least one category carries the new fields — this keeps
     # the report lean when callers pass a legacy summary dict that predates
     # the calibration extension.
-    has_calibration = any(
-        "ece" in m and "reliability_bins" in m for m in cats.values()
-    )
+    has_calibration = any("ece" in m and "reliability_bins" in m for m in cats.values())
     if has_calibration:
         lines.append("")
         lines.append("### Calibration")
@@ -590,8 +580,7 @@ def cohen_kappa(a_labels: list[int], b_labels: list[int]) -> float:
     """
     if len(a_labels) != len(b_labels):
         raise ValueError(
-            f"Label vectors must be the same length "
-            f"(got {len(a_labels)} and {len(b_labels)})"
+            f"Label vectors must be the same length (got {len(a_labels)} and {len(b_labels)})"
         )
     if not a_labels:
         raise ValueError("Label vectors must not be empty")
@@ -610,9 +599,7 @@ def cohen_kappa(a_labels: list[int], b_labels: list[int]) -> float:
     a_pos_rate = (both_pos + a_pos_b_neg) / n
     b_pos_rate = (both_pos + a_neg_b_pos) / n
 
-    expected_agreement = (a_pos_rate * b_pos_rate) + (
-        (1 - a_pos_rate) * (1 - b_pos_rate)
-    )
+    expected_agreement = (a_pos_rate * b_pos_rate) + ((1 - a_pos_rate) * (1 - b_pos_rate))
 
     if expected_agreement >= 1.0:
         return 0.0
@@ -748,9 +735,7 @@ def format_cross_model_markdown(
         f"| Category | Kappa | Agreement | {model_a_name} Count "
         f"| {model_b_name} Count | Calibrated |"
     )
-    lines.append(
-        "|----------|------:|----------:|-----------:|-----------:|:----------:|"
-    )
+    lines.append("|----------|------:|----------:|-----------:|-----------:|:----------:|")
 
     cats = summary["categories"]
     for name in sorted(cats, key=lambda n: (-cats[n]["kappa"], n)):

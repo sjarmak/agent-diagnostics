@@ -81,9 +81,7 @@ def blend(
 
         _v3_tax = load_taxonomy(_package_data_path("taxonomy_v3.yaml"))
         trusted_heuristic_cats = {
-            cat["name"]
-            for cat in _extract_categories(_v3_tax)
-            if cat.get("signal_dependencies")
+            cat["name"] for cat in _extract_categories(_v3_tax) if cat.get("signal_dependencies")
         }
 
     # Index LLM annotations by trial_path
@@ -131,10 +129,7 @@ def blend(
             # Supplement with trusted heuristic categories not in LLM set
             if heur_ann:
                 for c in heur_ann.get("categories", []):
-                    if (
-                        c["name"] in trusted_heuristic_cats
-                        and c["name"] not in cats_by_name
-                    ):
+                    if c["name"] in trusted_heuristic_cats and c["name"] not in cats_by_name:
                         cats_by_name[c["name"]] = {
                             "name": c["name"],
                             "confidence": c.get("confidence", 0.6),

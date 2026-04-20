@@ -100,9 +100,7 @@ def load_pipeline(path: Path) -> list[Stage]:
             raise PipelineError(f"{path}: stage #{idx} is not a table")
         for required in ("name", "inputs", "outputs", "command"):
             if required not in raw:
-                raise PipelineError(
-                    f"{path}: stage #{idx} missing required field {required!r}"
-                )
+                raise PipelineError(f"{path}: stage #{idx} missing required field {required!r}")
         name = str(raw["name"])
         if name in seen_names:
             raise PipelineError(f"{path}: duplicate stage name {name!r}")
@@ -111,9 +109,7 @@ def load_pipeline(path: Path) -> list[Stage]:
         inputs = tuple(str(v) for v in raw["inputs"])
         outputs = tuple(str(v) for v in raw["outputs"])
         command = str(raw["command"])
-        stages.append(
-            Stage(name=name, inputs=inputs, outputs=outputs, command=command)
-        )
+        stages.append(Stage(name=name, inputs=inputs, outputs=outputs, command=command))
     return stages
 
 
@@ -243,7 +239,6 @@ def format_summary(results: list[StageResult]) -> str:
         lines.append("all stages up to date")
     else:
         lines.append(
-            f"summary: {ran} ran, {skipped} skipped"
-            + (f", {failed} failed" if failed else "")
+            f"summary: {ran} ran, {skipped} skipped" + (f", {failed} failed" if failed else "")
         )
     return "\n".join(lines)

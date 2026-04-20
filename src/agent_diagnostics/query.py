@@ -72,9 +72,7 @@ def _register_parquet_view(con: Any, name: str, parquet_path: Path) -> bool:
 
     escaped = str(parquet_path).replace("'", "''")
     try:
-        con.execute(
-            f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')"
-        )
+        con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{escaped}')")
         return True
     except duckdb.Error as exc:
         if _ZERO_COLUMN_PARQUET_MARKER in str(exc):
@@ -147,9 +145,7 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
             # Parquet unreadable -- fall through to JSONL if present.
         if jsonl_path.is_file():
             escaped = str(jsonl_path).replace("'", "''")
-            con.execute(
-                f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
-            )
+            con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')")
             registered.add(name)
 
     try:
@@ -158,9 +154,7 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
         except duckdb.Error as exc:
             missing = _match_unregistered_known_table(str(exc), registered)
             if missing is not None:
-                raise MissingTableError(
-                    _missing_table_message(missing, data_path)
-                ) from exc
+                raise MissingTableError(_missing_table_message(missing, data_path)) from exc
             raise
 
         columns = [desc[0] for desc in result.description]
@@ -171,9 +165,7 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
     return [dict(zip(columns, row)) for row in rows]
 
 
-def _match_unregistered_known_table(
-    error_message: str, registered: set[str]
-) -> str | None:
+def _match_unregistered_known_table(error_message: str, registered: set[str]) -> str | None:
     """Return the unregistered TABLE_NAMES entry named in the error, or None.
 
     DuckDB's error message is the sole source of truth for which identifier
@@ -242,9 +234,7 @@ def get_schema(
         if not registered:
             if jsonl_path.is_file():
                 escaped = str(jsonl_path).replace("'", "''")
-                con.execute(
-                    f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
-                )
+                con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')")
             else:
                 continue
 
@@ -297,8 +287,7 @@ def format_table(rows: list[dict[str, Any]]) -> str:
     data_lines: list[str] = []
     for row in rows:
         line = " | ".join(
-            str(row.get(col, "")).ljust(width)
-            for col, width in zip(columns, col_widths)
+            str(row.get(col, "")).ljust(width) for col, width in zip(columns, col_widths)
         )
         data_lines.append(line)
 

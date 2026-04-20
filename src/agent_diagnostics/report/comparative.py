@@ -31,10 +31,7 @@ def _per_benchmark_summary(frame: list[dict]) -> list[dict]:
     for row in frame:
         by_bench[row["benchmark"]].append(row)
 
-    out = [
-        {"benchmark": bench, **_aggregate_slice(trials)}
-        for bench, trials in by_bench.items()
-    ]
+    out = [{"benchmark": bench, **_aggregate_slice(trials)} for bench, trials in by_bench.items()]
     out.sort(key=lambda r: (-r["n_trials"], r["benchmark"]))
     return out
 
@@ -106,9 +103,7 @@ def _top_divergences(matrix: dict[str, dict[str, dict]], top_k: int = 10) -> lis
 
     rows: list[dict] = []
     for bench in benchmarks:
-        agents_here = [
-            (agent, cells[bench]) for agent, cells in matrix.items() if bench in cells
-        ]
+        agents_here = [(agent, cells[bench]) for agent, cells in matrix.items() if bench in cells]
         if len(agents_here) < 2:
             continue
         # Sort desc by pass_rate, tiebreaker by agent name ascending so

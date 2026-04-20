@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
-
 from importlib import resources
 from pathlib import Path
+from typing import Any, Optional, Sequence
 
 from agent_diagnostics.taxonomy import valid_category_names
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
@@ -336,7 +335,8 @@ def _check_over_exploration(
         return _assignment(
             "over_exploration",
             min(0.9, 0.5 + (total - 80) * 0.005),
-            f"excessive exploration: {total} tool calls, {files_read} files read, only {edits} edits",
+            f"excessive exploration: {total} tool calls, {files_read} files read, "
+            f"only {edits} edits",
         )
     return None
 
@@ -533,8 +533,7 @@ def _check_tool_underutilization(
         return _assignment(
             "tool_underutilization",
             0.5,
-            f"read {files_read} files with only {search} searches, "
-            f"no code nav or semantic search",
+            f"read {files_read} files with only {search} searches, no code nav or semantic search",
         )
     return None
 
@@ -783,7 +782,8 @@ def _check_insufficient_provenance(
         return _assignment(
             "insufficient_provenance",
             0.6,
-            f"reward={reward} with only {total} tool calls and no search/navigation — unclear provenance",
+            f"reward={reward} with only {total} tool calls and no search/navigation "
+            f"— unclear provenance",
         )
     return None
 

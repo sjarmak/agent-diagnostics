@@ -1,4 +1,7 @@
-"""Agent Reliability Observatory — behavioral taxonomy and annotation framework for coding agents."""
+"""Agent Reliability Observatory.
+
+Behavioral taxonomy and annotation framework for coding agents.
+"""
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version

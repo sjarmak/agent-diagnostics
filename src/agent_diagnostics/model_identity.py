@@ -33,9 +33,7 @@ def load_models_config() -> dict[str, Any]:
         data = yaml.safe_load(fh)
 
     if not isinstance(data, dict) or "models" not in data:
-        raise ValueError(
-            f"Invalid models.yaml: expected top-level 'models' key in {_MODELS_PATH}"
-        )
+        raise ValueError(f"Invalid models.yaml: expected top-level 'models' key in {_MODELS_PATH}")
 
     return data
 
@@ -106,8 +104,6 @@ def resolve_snapshot(logical_id: str) -> str:
 
     snapshot_ids = entry.get("snapshot_ids", [])
     if not snapshot_ids:
-        raise ValueError(
-            f"Logical identity {logical_id!r} has no snapshot IDs configured."
-        )
+        raise ValueError(f"Logical identity {logical_id!r} has no snapshot IDs configured.")
 
     return snapshot_ids[0]

@@ -22,10 +22,7 @@ class ToolRegistry:
     def all_tools(self) -> frozenset[str]:
         """Return the union of all tool sets."""
         return (
-            self.search_tools
-            | self.edit_tools
-            | self.code_nav_tools
-            | self.semantic_search_tools
+            self.search_tools | self.edit_tools | self.code_nav_tools | self.semantic_search_tools
         )
 
 

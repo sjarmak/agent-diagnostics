@@ -23,9 +23,7 @@ _VALID_BACKENDS = ("claude-code", "api", "batch")
 
 def _reject_unknown_backend(backend: str) -> None:
     if backend not in _VALID_BACKENDS:
-        raise ValueError(
-            f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'."
-        )
+        raise ValueError(f"Unknown backend: {backend!r}. Use 'claude-code', 'api', or 'batch'.")
 
 
 def annotate_trial_llm(

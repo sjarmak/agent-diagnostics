@@ -101,9 +101,7 @@ def annotate_batch_messages(
 
     for idx, (trial_path, signals) in enumerate(zip(trials, signals_list)):
         trial_dir = Path(trial_path)
-        instruction = _read_text(
-            trial_dir / "agent" / "instruction.txt", max_chars=4000
-        )
+        instruction = _read_text(trial_dir / "agent" / "instruction.txt", max_chars=4000)
         traj = _load_json(trial_dir / "agent" / "trajectory.json")
         truncated = truncate_trajectory(traj, first_n=30, last_n=10)
         prompt = build_prompt(instruction, truncated, signals, taxonomy)
@@ -132,9 +130,7 @@ def annotate_batch_messages(
         )
         pending[custom_id] = (idx, str(trial_dir), ckey)
 
-    logger.info(
-        "Batch: %d cached, %d to submit", cached_count, len(batch_requests)
-    )
+    logger.info("Batch: %d cached, %d to submit", cached_count, len(batch_requests))
 
     if not batch_requests:
         logger.info("All trials resolved from cache.")
@@ -179,10 +175,7 @@ def annotate_batch_messages(
             message = result.result.message
             categories: list[dict] = []
             for block in message.content:
-                if (
-                    getattr(block, "type", None) == "tool_use"
-                    and block.name == "annotate"
-                ):
+                if getattr(block, "type", None) == "tool_use" and block.name == "annotate":
                     tool_input = block.input
                     if isinstance(tool_input, dict):
                         categories = tool_input.get("categories", [])
@@ -190,9 +183,7 @@ def annotate_batch_messages(
 
             validated = validate_categories(categories, trial_dir_str)
             annotation = _to_annotation_result(validated)
-            _pkg.put_cached(
-                DEFAULT_CACHE_DIR, ckey, validated, is_error=_is_error(annotation)
-            )
+            _pkg.put_cached(DEFAULT_CACHE_DIR, ckey, validated, is_error=_is_error(annotation))
             results[idx] = annotation
             succeeded += 1
         else:
