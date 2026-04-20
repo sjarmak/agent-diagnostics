@@ -161,6 +161,106 @@ def test_missing_table_skipped(tmp_path: Path):
     assert rows == [{"one": 1}]
 
 
+# ---------------------------------------------------------------------------
+# run_query — friendly error when a known table is referenced but unregistered
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("missing", ["signals", "annotations", "manifests"])
+def test_run_query_missing_known_table_raises(tmp_path: Path, missing: str):
+    """Querying any unregistered TABLE_NAMES entry raises MissingTableError
+    (a LookupError) whose message names both expected backing paths."""
+    from agent_diagnostics.query import MissingTableError, run_query
+
+    with pytest.raises(MissingTableError) as exc_info:
+        run_query(f"SELECT * FROM {missing}", data_dir=tmp_path)
+
+    # LookupError subclass contract lets broad-catch callers handle this
+    # without importing MissingTableError.
+    assert isinstance(exc_info.value, LookupError)
+    msg = str(exc_info.value)
+    assert missing in msg
+    assert str(tmp_path / f"{missing}.jsonl") in msg
+    assert str(tmp_path / "export" / f"{missing}.parquet") in msg
+
+
+def test_run_query_missing_annotations_ok_if_unreferenced(tmp_path: Path):
+    """A query that touches only existing tables succeeds when other known
+    tables are absent — the friendly error must not become a false positive
+    for queries that never reach the missing table."""
+    from agent_diagnostics.query import run_query
+
+    # Only signals.jsonl exists; annotations and manifests are unregistered.
+    (tmp_path / "signals.jsonl").write_text(
+        json.dumps({"task_id": "t1", "reward": 1.0}) + "\n"
+    )
+
+    rows = run_query("SELECT task_id FROM signals", data_dir=tmp_path)
+    assert rows == [{"task_id": "t1"}]
+
+
+def test_run_query_cte_shadows_missing_table(tmp_path: Path):
+    """A CTE named after a missing TABLE_NAMES entry must not be preempted.
+
+    DuckDB resolves the CTE internally and never raises CatalogException, so
+    the catch-and-rewrite path cannot trigger here — this test is a forward-
+    looking regression guard against a future naive switch to regex preflight.
+    """
+    from agent_diagnostics.query import run_query
+
+    rows = run_query(
+        "WITH annotations AS (SELECT 42 AS v) SELECT v FROM annotations",
+        data_dir=tmp_path,
+    )
+    assert rows == [{"v": 42}]
+
+
+def test_run_query_missing_table_case_insensitive(tmp_path: Path):
+    """DuckDB is case-insensitive for identifiers; the friendly rewrite
+    must still fire for uppercase references."""
+    from agent_diagnostics.query import MissingTableError, run_query
+
+    with pytest.raises(MissingTableError) as exc_info:
+        run_query("SELECT * FROM ANNOTATIONS", data_dir=tmp_path)
+    assert "annotations" in str(exc_info.value).lower()
+
+
+def test_run_query_string_literal_not_misparsed(tmp_path: Path):
+    """A string literal containing a missing-table name must not trigger
+    the friendly rewrite — the query itself never references the table."""
+    from agent_diagnostics.query import run_query
+
+    (tmp_path / "signals.jsonl").write_text(
+        json.dumps({"task_id": "annotations", "reward": 0.5}) + "\n"
+    )
+
+    rows = run_query(
+        "SELECT task_id FROM signals WHERE task_id = 'annotations'",
+        data_dir=tmp_path,
+    )
+    assert rows == [{"task_id": "annotations"}]
+
+
+def test_run_query_unknown_table_passthrough(tmp_path: Path):
+    """Catalog errors for non-TABLE_NAMES tables must pass through with
+    DuckDB's original error — we only rewrite for our known aliases.
+
+    Registers a real signals.jsonl so a too-broad catch that re-raises
+    MissingTableError on *any* catalog failure would be caught here.
+    """
+    import duckdb
+
+    from agent_diagnostics.query import MissingTableError, run_query
+
+    (tmp_path / "signals.jsonl").write_text(
+        json.dumps({"task_id": "t1", "reward": 1.0}) + "\n"
+    )
+
+    with pytest.raises(duckdb.Error) as exc_info:
+        run_query("SELECT * FROM some_custom_table", data_dir=tmp_path)
+    assert not isinstance(exc_info.value, MissingTableError)
+
+
 def test_unreadable_parquet_skipped(tmp_path: Path, caplog):
     """An unreadable Parquet file must not break unrelated queries.
 

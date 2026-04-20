@@ -10,6 +10,7 @@ Requires the ``query`` extra: ``pip install agent-diagnostics[query]``.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,38 @@ TABLE_NAMES: tuple[str, ...] = ("signals", "annotations", "manifests")
 
 
 _ZERO_COLUMN_PARQUET_MARKER = "at least one non-root column"
+
+# DuckDB surfaces "missing table" through two different error shapes, and we
+# must recognize both:
+#
+# 1. CatalogException (clean case, no Python global shadows the name):
+#      Catalog Error: Table with name annotations does not exist!
+#
+# 2. InvalidInputException (replacement-scan case — the reason this module
+#    exists). `from __future__ import annotations` binds a `_Feature` global
+#    that DuckDB's replacement scan picks up, producing:
+#      Invalid Input Error: Python Object "annotations" of type "_Feature"
+#      ... not suitable for replacement scans.
+#
+# Case-insensitive: DuckDB echoes identifiers in their original case today,
+# but that is not a documented contract.
+_MISSING_TABLE_RE = re.compile(
+    r"Table with name (?P<catalog>\w+) does not exist"
+    r'|Python Object "(?P<replacement>\w+)".*not suitable for replacement scans',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+class MissingTableError(LookupError):
+    """A known table alias was referenced but has no backing file.
+
+    Raised by :func:`run_query` when a SQL query references one of
+    :data:`TABLE_NAMES` for which neither ``data_dir/<name>.jsonl`` nor
+    ``data_dir/export/<name>.parquet`` is present.
+
+    Subclasses :class:`LookupError` so broad-catch callers can handle the
+    "table not found" category without importing this symbol.
+    """
 
 
 def _register_parquet_view(con: Any, name: str, parquet_path: Path) -> bool:
@@ -89,20 +122,27 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
 
     Raises
     ------
+    MissingTableError
+        When the SQL references a known table alias
+        (``signals``/``annotations``/``manifests``) that has no backing
+        JSONL or Parquet file. The message names both expected paths.
     duckdb.Error
-        On invalid SQL or query execution failure.
+        On invalid SQL or query execution failure (including catalog errors
+        for table names outside :data:`TABLE_NAMES`).
     """
     import duckdb
 
     data_path = Path(data_dir)
     con = duckdb.connect(":memory:")
 
+    registered: set[str] = set()
     for name in TABLE_NAMES:
         parquet_path = data_path / "export" / f"{name}.parquet"
         jsonl_path = data_path / f"{name}.jsonl"
 
         if parquet_path.is_file():
             if _register_parquet_view(con, name, parquet_path):
+                registered.add(name)
                 continue
             # Parquet unreadable -- fall through to JSONL if present.
         if jsonl_path.is_file():
@@ -110,13 +150,56 @@ def run_query(sql: str, data_dir: str | Path = "data/") -> list[dict[str, Any]]:
             con.execute(
                 f"CREATE VIEW {name} AS SELECT * FROM read_json_auto('{escaped}')"
             )
+            registered.add(name)
 
-    result = con.execute(sql)
-    columns = [desc[0] for desc in result.description]
-    rows = result.fetchall()
-    con.close()
+    try:
+        try:
+            result = con.execute(sql)
+        except duckdb.Error as exc:
+            missing = _match_unregistered_known_table(str(exc), registered)
+            if missing is not None:
+                raise MissingTableError(
+                    _missing_table_message(missing, data_path)
+                ) from exc
+            raise
+
+        columns = [desc[0] for desc in result.description]
+        rows = result.fetchall()
+    finally:
+        con.close()
 
     return [dict(zip(columns, row)) for row in rows]
+
+
+def _match_unregistered_known_table(
+    error_message: str, registered: set[str]
+) -> str | None:
+    """Return the unregistered TABLE_NAMES entry named in the error, or None.
+
+    DuckDB's error message is the sole source of truth for which identifier
+    it could not resolve — delegating to DuckDB avoids SQL-parsing pitfalls
+    (comments, string literals, quoted identifiers, CTEs) that a naive
+    preflight regex would mishandle.
+    """
+    match = _MISSING_TABLE_RE.search(error_message)
+    if match is None:
+        return None
+    captured = match.group("catalog") or match.group("replacement")
+    name = captured.lower()
+    if name in TABLE_NAMES and name not in registered:
+        return name
+    return None
+
+
+def _missing_table_message(name: str, data_path: Path) -> str:
+    jsonl_path = data_path / f"{name}.jsonl"
+    parquet_path = data_path / "export" / f"{name}.parquet"
+    return (
+        f"No data found for table '{name}'. Expected one of:\n"
+        f"  - {jsonl_path}\n"
+        f"  - {parquet_path}\n"
+        f"Run the ingest/annotate/export pipeline to populate it."
+    )
 
 
 def get_schema(
