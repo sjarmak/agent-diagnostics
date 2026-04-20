@@ -9,6 +9,9 @@ Requires the ``query`` extra: ``pip install agent-diagnostics[query]``.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 import re
 from pathlib import Path
@@ -17,6 +20,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 TABLE_NAMES: tuple[str, ...] = ("signals", "annotations", "manifests")
+
+# Valid values for the ``--format`` flag on ``observatory query``.
+OUTPUT_FORMATS: tuple[str, ...] = ("table", "json", "jsonl", "csv")
 
 
 _ZERO_COLUMN_PARQUET_MARKER = "at least one non-root column"
@@ -215,8 +221,6 @@ def get_schema(
     str
         Schema information formatted as JSON or a Markdown table.
     """
-    import json
-
     import duckdb
 
     data_path = Path(data_dir)
@@ -294,3 +298,75 @@ def format_table(rows: list[dict[str, Any]]) -> str:
     parts = [header, separator] + data_lines
     parts.append(f"({len(rows)} row{'s' if len(rows) != 1 else ''})")
     return "\n".join(parts)
+
+
+def format_rows(rows: list[dict[str, Any]], fmt: str) -> str:
+    """Render *rows* in the requested output *fmt*.
+
+    Supported formats (see :data:`OUTPUT_FORMATS`):
+
+    * ``"table"`` — human-readable ASCII table via :func:`format_table`
+      (default, preserves the pre-flag behaviour of the CLI).
+    * ``"json"`` — JSON list-of-objects, two-space indented. ``[]`` when
+      *rows* is empty. ``default=str`` handles DuckDB types (``datetime``,
+      ``Decimal``, etc.) that are not natively JSON-serialisable.
+    * ``"jsonl"`` — one JSON object per line, no trailing newline. Empty
+      string when *rows* is empty. Stream-friendly for piping to
+      line-oriented consumers (``jq``, ``awk``).
+    * ``"csv"`` — RFC 4180 output with a header row. Empty string when
+      *rows* is empty (no columns known). Uses ``csv.QUOTE_MINIMAL`` so
+      fields containing commas, quotes, or newlines are properly quoted.
+
+    Non-string, non-numeric cell values are coerced with ``str()`` for CSV
+    so the output round-trips through :class:`csv.DictReader` without
+    provoking a ``_csv.Error``. JSON/JSONL retain native types where
+    possible and fall back to ``str()`` for exotic scalars.
+
+    Parameters
+    ----------
+    rows:
+        Result rows as returned by :func:`run_query`.
+    fmt:
+        Output format name. Must be one of :data:`OUTPUT_FORMATS`.
+
+    Raises
+    ------
+    ValueError
+        If *fmt* is not a recognised output format. Callers wiring this
+        into argparse should restrict ``choices`` to :data:`OUTPUT_FORMATS`
+        so this path is only reachable from programmatic callers.
+    """
+    if fmt == "table":
+        return format_table(rows)
+    if fmt == "json":
+        return json.dumps(rows, indent=2, default=str)
+    if fmt == "jsonl":
+        if not rows:
+            return ""
+        return "\n".join(json.dumps(row, default=str) for row in rows)
+    if fmt == "csv":
+        if not rows:
+            return ""
+        buf = io.StringIO()
+        columns = list(rows[0].keys())
+        writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(columns)
+        # csv.writer stringifies scalars itself, but coerce None -> "" so
+        # NULL cells render as empty fields instead of the literal "None".
+        for row in rows:
+            writer.writerow(_csv_cell(row.get(col)) for col in columns)
+        return buf.getvalue().rstrip("\r\n")
+    raise ValueError(
+        f"unknown query output format: {fmt!r}. Expected one of: {', '.join(OUTPUT_FORMATS)}"
+    )
+
+
+def _csv_cell(value: Any) -> str:
+    """Coerce a DuckDB cell value into a CSV-safe string.
+
+    ``None`` becomes the empty field (``""``), matching typical CSV
+    conventions for NULL. Scalars are passed through ``str()``.
+    """
+    if value is None:
+        return ""
+    return str(value)

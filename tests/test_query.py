@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import subprocess
@@ -516,3 +518,246 @@ def test_help_includes_query_subcommand():
     )
     assert result.returncode == 0
     assert "query" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# format_rows — output format dispatch (table/json/jsonl/csv)
+# ---------------------------------------------------------------------------
+
+
+def _sample_rows() -> list[dict[str, object]]:
+    return [
+        {"name": "Alice", "score": 95, "note": None},
+        {"name": "Bob, Jr.", "score": 87, "note": 'has "quotes"'},
+    ]
+
+
+def test_format_rows_table_matches_format_table():
+    """Default format 'table' reproduces the existing format_table output."""
+    from agent_diagnostics.query import format_rows, format_table
+
+    rows = _sample_rows()
+    assert format_rows(rows, "table") == format_table(rows)
+
+
+def test_format_rows_json_list_of_objects():
+    """json format emits a parseable list of objects preserving column order."""
+    from agent_diagnostics.query import format_rows
+
+    rows = _sample_rows()
+    output = format_rows(rows, "json")
+    parsed = json.loads(output)
+
+    assert isinstance(parsed, list)
+    assert len(parsed) == 2
+    assert parsed[0] == {"name": "Alice", "score": 95, "note": None}
+    assert parsed[1] == {"name": "Bob, Jr.", "score": 87, "note": 'has "quotes"'}
+    # Column order from the first row's dict must be preserved.
+    assert list(parsed[0].keys()) == ["name", "score", "note"]
+
+
+def test_format_rows_jsonl_one_object_per_line():
+    """jsonl format emits one JSON object per line, each independently parseable."""
+    from agent_diagnostics.query import format_rows
+
+    rows = _sample_rows()
+    output = format_rows(rows, "jsonl")
+    lines = output.splitlines()
+
+    assert len(lines) == 2
+    parsed_lines = [json.loads(line) for line in lines]
+    assert parsed_lines[0] == {"name": "Alice", "score": 95, "note": None}
+    assert parsed_lines[1] == {"name": "Bob, Jr.", "score": 87, "note": 'has "quotes"'}
+
+
+def test_format_rows_csv_rfc_4180():
+    """csv format emits RFC 4180 output with headers, parseable by csv.DictReader."""
+    from agent_diagnostics.query import format_rows
+
+    rows = _sample_rows()
+    output = format_rows(rows, "csv")
+
+    reader = csv.DictReader(io.StringIO(output))
+    assert reader.fieldnames == ["name", "score", "note"]
+    records = list(reader)
+    assert len(records) == 2
+    assert records[0]["name"] == "Alice"
+    assert records[0]["score"] == "95"
+    assert records[1]["name"] == "Bob, Jr."
+    # Embedded quotes must round-trip through DictReader correctly.
+    assert records[1]["note"] == 'has "quotes"'
+
+
+def test_format_rows_csv_quotes_comma_fields():
+    """The CSV writer must quote fields containing commas (RFC 4180)."""
+    from agent_diagnostics.query import format_rows
+
+    rows = [{"name": "Bob, Jr.", "score": 87}]
+    output = format_rows(rows, "csv")
+    # "Bob, Jr." must be wrapped in double quotes so the comma is not a separator.
+    assert '"Bob, Jr."' in output
+
+
+@pytest.mark.parametrize(
+    "fmt,expected",
+    [
+        ("json", "[]"),
+        ("jsonl", ""),
+        ("csv", ""),
+    ],
+)
+def test_format_rows_empty(fmt: str, expected: str):
+    """Empty result sets produce sensible output for every structured format."""
+    from agent_diagnostics.query import format_rows
+
+    assert format_rows([], fmt) == expected
+
+
+def test_format_rows_empty_table_matches_format_table():
+    """Empty rows for 'table' format keep the '(0 rows)' sentinel."""
+    from agent_diagnostics.query import format_rows
+
+    assert format_rows([], "table") == "(0 rows)"
+
+
+def test_format_rows_invalid_format_raises():
+    """An unknown format value must raise, not silently default."""
+    from agent_diagnostics.query import format_rows
+
+    with pytest.raises(ValueError):
+        format_rows([{"x": 1}], "yaml")
+
+
+def test_format_rows_json_handles_non_native_types():
+    """JSON serialization must not crash on DuckDB's non-native types (datetime etc.)."""
+    import datetime as dt
+
+    from agent_diagnostics.query import format_rows
+
+    rows = [{"ts": dt.datetime(2026, 4, 20, 12, 0, 0), "id": 1}]
+    output = format_rows(rows, "json")
+    # json.dumps(default=str) renders datetime via str(), which must round-trip.
+    parsed = json.loads(output)
+    assert parsed[0]["id"] == 1
+    assert "2026-04-20" in parsed[0]["ts"]
+
+
+# ---------------------------------------------------------------------------
+# cmd_query --format wiring
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_query_format_json(capsys):
+    """cmd_query with format='json' prints parseable JSON list-of-objects."""
+    from agent_diagnostics.cli import cmd_query
+
+    args = SimpleNamespace(
+        sql="SELECT count(*) AS n FROM signals",
+        data_dir=str(FIXTURES_DIR),
+        format="json",
+    )
+    cmd_query(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert parsed == [{"n": 5}]
+
+
+def test_cmd_query_format_jsonl(capsys):
+    """cmd_query with format='jsonl' prints one JSON object per line."""
+    from agent_diagnostics.cli import cmd_query
+
+    args = SimpleNamespace(
+        sql=("SELECT task_id FROM signals WHERE passed = true ORDER BY task_id LIMIT 2"),
+        data_dir=str(FIXTURES_DIR),
+        format="jsonl",
+    )
+    cmd_query(args)
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.out.splitlines() if ln.strip()]
+    assert len(lines) == 2
+    parsed = [json.loads(ln) for ln in lines]
+    assert all("task_id" in row for row in parsed)
+
+
+def test_cmd_query_format_csv(capsys):
+    """cmd_query with format='csv' prints RFC 4180 CSV."""
+    from agent_diagnostics.cli import cmd_query
+
+    args = SimpleNamespace(
+        sql="SELECT count(*) AS n FROM signals",
+        data_dir=str(FIXTURES_DIR),
+        format="csv",
+    )
+    cmd_query(args)
+    captured = capsys.readouterr()
+    reader = csv.DictReader(io.StringIO(captured.out))
+    assert reader.fieldnames == ["n"]
+    records = list(reader)
+    assert records == [{"n": "5"}]
+
+
+def test_cmd_query_format_table_default(capsys):
+    """cmd_query without --format falls back to the ASCII table renderer."""
+    from agent_diagnostics.cli import cmd_query
+
+    # Omit format entirely so the handler must treat absence as 'table'.
+    args = SimpleNamespace(
+        sql="SELECT count(*) AS n FROM signals",
+        data_dir=str(FIXTURES_DIR),
+    )
+    cmd_query(args)
+    captured = capsys.readouterr()
+    # ASCII table renderer includes the "(N rows)" footer.
+    assert "(1 row)" in captured.out
+    assert "n" in captured.out
+    assert "5" in captured.out
+
+
+def test_cli_rejects_invalid_format():
+    """observatory query --format invalid ... exits non-zero with argparse error."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "agent_diagnostics",
+            "query",
+            "SELECT 1",
+            "--format",
+            "yaml",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0
+    # argparse emits to stderr and names the offending argument.
+    assert "format" in result.stderr.lower()
+
+
+def test_cli_help_lists_format_choices():
+    """observatory query --help documents the --format flag with all choices."""
+    result = subprocess.run(
+        [sys.executable, "-m", "agent_diagnostics", "query", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    assert "--format" in result.stdout
+    for choice in ("table", "json", "csv", "jsonl"):
+        assert choice in result.stdout
+
+
+def test_cmd_query_format_json_empty_rows(tmp_path: Path, capsys):
+    """cmd_query format=json with an empty result prints '[]'."""
+    from agent_diagnostics.cli import cmd_query
+
+    (tmp_path / "signals.jsonl").write_text(json.dumps({"task_id": "t1", "reward": 0.0}) + "\n")
+    args = SimpleNamespace(
+        sql="SELECT task_id FROM signals WHERE 1=0",
+        data_dir=str(tmp_path),
+        format="json",
+    )
+    cmd_query(args)
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "[]"
