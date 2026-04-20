@@ -697,7 +697,7 @@ def cmd_db_schema(args):
 
 def cmd_query(args):
     """Run a SQL query against observatory data via DuckDB."""
-    from agent_diagnostics.query import format_table, run_query
+    from agent_diagnostics.query import format_rows, run_query
 
     try:
         rows = run_query(args.sql, args.data_dir)
@@ -705,8 +705,11 @@ def cmd_query(args):
         logger.error("%s", exc)
         sys.exit(1)
 
-    # STDOUT: query result table is the primary user-requested output.
-    print(format_table(rows))
+    # Absent attribute (programmatic Namespace callers) falls back to 'table'
+    # so we preserve the pre-flag CLI contract for existing consumers.
+    fmt = getattr(args, "format", None) or "table"
+    # STDOUT: query result is the primary user-requested output.
+    print(format_rows(rows, fmt))
 
 
 def cmd_export(args):
@@ -1248,6 +1251,8 @@ def main():
     p_validate.set_defaults(func=cmd_validate)
 
     # query
+    from agent_diagnostics.query import OUTPUT_FORMATS as _QUERY_OUTPUT_FORMATS
+
     p_query = subparsers.add_parser(
         "query", help="Run a SQL query against observatory data via DuckDB"
     )
@@ -1256,6 +1261,14 @@ def main():
         "--data-dir",
         default="data/",
         help="Root data directory (default: data/)",
+    )
+    p_query.add_argument(
+        "--format",
+        default="table",
+        choices=list(_QUERY_OUTPUT_FORMATS),
+        help="Output format: 'table' (human-readable, default), "
+        "'json' (list of objects), 'jsonl' (one object per line, stream-friendly), "
+        "or 'csv' (RFC 4180 with header row).",
     )
     p_query.set_defaults(func=cmd_query)
 
