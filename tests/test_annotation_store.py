@@ -252,9 +252,7 @@ class TestMergeBehavior:
         assert len(result) == 1
         assert result[0]["confidence"] == 0.95
 
-    def test_matching_pk_keeps_existing_when_older_incoming(
-        self, tmp_path: Path
-    ) -> None:
+    def test_matching_pk_keeps_existing_when_older_incoming(self, tmp_path: Path) -> None:
         store = AnnotationStore(tmp_path / "annotations.jsonl")
         old_row = _make_row(
             confidence=0.95,
@@ -355,9 +353,7 @@ class TestAtomicWrite:
             store.upsert_annotations([_make_row()], taxonomy_version="v3")
 
         # At least one rename should target the annotations.jsonl file
-        jsonl_renames = [
-            (s, d) for s, d in rename_calls if d.endswith("annotations.jsonl")
-        ]
+        jsonl_renames = [(s, d) for s, d in rename_calls if d.endswith("annotations.jsonl")]
         assert len(jsonl_renames) >= 1
 
 

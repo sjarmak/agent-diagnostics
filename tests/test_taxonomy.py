@@ -82,9 +82,9 @@ class TestTaxonomyV1:
         taxonomy = self._load_v1()
         valid_polarities = {"failure", "success", "neutral"}
         for cat in taxonomy["categories"]:
-            assert (
-                cat["polarity"] in valid_polarities
-            ), f"{cat['name']} has invalid polarity: {cat['polarity']}"
+            assert cat["polarity"] in valid_polarities, (
+                f"{cat['name']} has invalid polarity: {cat['polarity']}"
+            )
 
     def test_v1_polarity_counts(self) -> None:
         taxonomy = self._load_v1()
@@ -111,9 +111,7 @@ class TestTaxonomyV2:
         v2 = load_taxonomy(path_v2)
         v1_names = {cat["name"] for cat in v1["categories"]}
         v2_names = {cat["name"] for cat in _extract_categories(v2)}
-        assert (
-            v1_names == v2_names
-        ), f"Mismatch: {v1_names.symmetric_difference(v2_names)}"
+        assert v1_names == v2_names, f"Mismatch: {v1_names.symmetric_difference(v2_names)}"
 
     def test_v2_dimensions_have_categories(self) -> None:
         path = _package_data_path("taxonomy_v2.yaml")
@@ -189,9 +187,7 @@ class TestExemplars:
             data = json.loads(f.read_text())
             for ann in data.get("annotations", []):
                 for cat in ann.get("categories", []):
-                    assert (
-                        cat["name"] in valid
-                    ), f"{f.name}: unknown category '{cat['name']}'"
+                    assert cat["name"] in valid, f"{f.name}: unknown category '{cat['name']}'"
 
 
 class TestVersion:

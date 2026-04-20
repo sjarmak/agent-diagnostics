@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 from typing import Set
 
-
 from agent_diagnostics.constants import REDACTED_SIGNAL_FIELDS
 from agent_diagnostics.taxonomy import valid_category_names
 
@@ -36,8 +35,7 @@ class TestSignalDependenciesFormat:
         for field_name in REDACTED_SIGNAL_FIELDS:
             assert isinstance(field_name, str), f"Expected str, got {type(field_name)}"
             assert not self._DOTTED_PATH_RE.search(field_name), (
-                f"Signal dependency '{field_name}' uses dotted path; "
-                "must be a flat signal name"
+                f"Signal dependency '{field_name}' uses dotted path; must be a flat signal name"
             )
 
     def test_redacted_fields_are_non_empty(self) -> None:
@@ -52,9 +50,9 @@ class TestSignalDependenciesFormat:
     def test_required_redacted_fields_present(self) -> None:
         """The redacted set must contain at minimum: reward, passed, exception_info."""
         required = {"reward", "passed", "exception_info"}
-        assert required.issubset(
-            REDACTED_SIGNAL_FIELDS
-        ), f"Missing required redacted fields: {required - REDACTED_SIGNAL_FIELDS}"
+        assert required.issubset(REDACTED_SIGNAL_FIELDS), (
+            f"Missing required redacted fields: {required - REDACTED_SIGNAL_FIELDS}"
+        )
 
     def test_signal_dependencies_example_format(self) -> None:
         """Demonstrate the expected format: a list of flat signal name strings."""
@@ -80,9 +78,7 @@ class TestValidCategoryNamesContract:
         result = valid_category_names()
         assert len(result) > 0, "Taxonomy should have at least one category"
         for name in result:
-            assert isinstance(
-                name, str
-            ), f"Category name should be str, got {type(name)}"
+            assert isinstance(name, str), f"Category name should be str, got {type(name)}"
 
     def test_return_type_is_set_str(self) -> None:
         """Verify the return type annotation contract: Set[str]."""

@@ -31,9 +31,7 @@ class TestLoadModelsConfig:
         config = load_models_config()
         for logical_id, entry in config["models"].items():
             assert "snapshot_ids" in entry, f"{logical_id} missing snapshot_ids"
-            assert (
-                len(entry["snapshot_ids"]) > 0
-            ), f"{logical_id} has empty snapshot_ids"
+            assert len(entry["snapshot_ids"]) > 0, f"{logical_id} has empty snapshot_ids"
 
 
 # ---------------------------------------------------------------------------

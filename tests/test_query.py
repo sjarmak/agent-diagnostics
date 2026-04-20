@@ -40,8 +40,7 @@ def zero_col_annotations_dir(tmp_path: Path) -> Path:
     signals_path = export_dir / "signals.parquet"
     con = duckdb.connect(":memory:")
     con.execute(
-        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
-        f"TO '{signals_path}' (FORMAT PARQUET)"
+        f"COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) TO '{signals_path}' (FORMAT PARQUET)"
     )
     con.close()
 
@@ -128,8 +127,7 @@ def test_parquet_auto_registered(tmp_path: Path):
 
     con = duckdb.connect(":memory:")
     con.execute(
-        "COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) "
-        f"TO '{parquet_path}' (FORMAT PARQUET)"
+        f"COPY (SELECT 'pq-task' AS task_id, 0.99 AS reward) TO '{parquet_path}' (FORMAT PARQUET)"
     )
     con.close()
 
@@ -245,9 +243,7 @@ def test_run_query_missing_annotations_ok_if_unreferenced(tmp_path: Path):
     from agent_diagnostics.query import run_query
 
     # Only signals.jsonl exists; annotations and manifests are unregistered.
-    (tmp_path / "signals.jsonl").write_text(
-        json.dumps({"task_id": "t1", "reward": 1.0}) + "\n"
-    )
+    (tmp_path / "signals.jsonl").write_text(json.dumps({"task_id": "t1", "reward": 1.0}) + "\n")
 
     rows = run_query("SELECT task_id FROM signals", data_dir=tmp_path)
     assert rows == [{"task_id": "t1"}]
@@ -306,9 +302,7 @@ def test_run_query_unknown_table_passthrough(tmp_path: Path):
 
     from agent_diagnostics.query import MissingTableError, run_query
 
-    (tmp_path / "signals.jsonl").write_text(
-        json.dumps({"task_id": "t1", "reward": 1.0}) + "\n"
-    )
+    (tmp_path / "signals.jsonl").write_text(json.dumps({"task_id": "t1", "reward": 1.0}) + "\n")
 
     with pytest.raises(duckdb.Error) as exc_info:
         run_query("SELECT * FROM some_custom_table", data_dir=tmp_path)
@@ -336,9 +330,7 @@ def test_unreadable_parquet_skipped(zero_col_annotations_dir: Path, caplog):
     assert rows == [{"n": 1}]
     # The zero-column stub case should log at WARNING (known issue path),
     # not ERROR — and the log must identify the skipped table.
-    skip_records = [
-        r for r in caplog.records if "annotations" in r.getMessage()
-    ]
+    skip_records = [r for r in caplog.records if "annotations" in r.getMessage()]
     assert skip_records, "expected a log entry mentioning the skipped annotations table"
     assert any(r.levelno == logging.WARNING for r in skip_records), (
         "zero-column stub should log at WARNING, not ERROR"
@@ -366,13 +358,9 @@ def test_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
     assert rows == [{"n": 1}]
     # And the unexpected-corruption case should have logged at ERROR.
     error_records = [
-        r
-        for r in caplog.records
-        if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
+        r for r in caplog.records if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
     ]
-    assert error_records, (
-        "expected ERROR-level log for unexpected corrupt Parquet"
-    )
+    assert error_records, "expected ERROR-level log for unexpected corrupt Parquet"
 
 
 # ---------------------------------------------------------------------------
@@ -415,9 +403,7 @@ def test_get_schema_unreadable_parquet_falls_through_to_jsonl(
     assert "category_name" in annotation_cols
 
     # The zero-column stub case should log at WARNING (known issue path).
-    skip_records = [
-        r for r in caplog.records if "annotations" in r.getMessage()
-    ]
+    skip_records = [r for r in caplog.records if "annotations" in r.getMessage()]
     assert skip_records, "expected a log entry mentioning the skipped annotations table"
     assert any(r.levelno == logging.WARNING for r in skip_records), (
         "zero-column stub should log at WARNING, not ERROR"
@@ -447,13 +433,9 @@ def test_get_schema_corrupt_parquet_logs_error_and_falls_through_to_jsonl(
 
     # Unexpected-corruption case must log at ERROR.
     error_records = [
-        r
-        for r in caplog.records
-        if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
+        r for r in caplog.records if r.levelno >= logging.ERROR and "annotations" in r.getMessage()
     ]
-    assert error_records, (
-        "expected ERROR-level log for unexpected corrupt Parquet in get_schema"
-    )
+    assert error_records, "expected ERROR-level log for unexpected corrupt Parquet in get_schema"
 
 
 # ---------------------------------------------------------------------------

@@ -73,6 +73,6 @@ def test_e2e_golden_path(tmp_path: Path) -> None:
     # At least one known category name appears in the report
     assigned_names = [c.name for c in annotations_raw]
     found_in_report = [name for name in assigned_names if name in report_text]
-    assert (
-        len(found_in_report) > 0
-    ), f"None of the assigned categories {assigned_names} found in report"
+    assert len(found_in_report) > 0, (
+        f"None of the assigned categories {assigned_names} found in report"
+    )

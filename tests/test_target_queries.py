@@ -107,9 +107,7 @@ def rich_data_dir(tmp_path: Path) -> Path:
         },
     ]
     annotations_path = tmp_path / "annotations.jsonl"
-    annotations_path.write_text(
-        "\n".join(json.dumps(row) for row in annotations) + "\n"
-    )
+    annotations_path.write_text("\n".join(json.dumps(row) for row in annotations) + "\n")
 
     # manifests.jsonl
     manifests = [

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import builtins
 import inspect
 import json
@@ -10,8 +11,6 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-
-import asyncio
 
 from agent_diagnostics import llm_annotator
 from agent_diagnostics.annotation_cache import cache_key
@@ -425,14 +424,12 @@ class TestTaxonomyResolution:
         rendered = llm_annotator._taxonomy_yaml()
         parsed = yaml.safe_load(rendered)
 
-        assert parsed.get("version", "").startswith(
-            "3."
-        ), f"Expected v3 taxonomy in LLM prompt, got version={parsed.get('version')!r}"
+        assert parsed.get("version", "").startswith("3."), (
+            f"Expected v3 taxonomy in LLM prompt, got version={parsed.get('version')!r}"
+        )
         assert "dimensions" in parsed, "Expected v3 structure with 'dimensions' key"
 
-        prompt_names = {
-            c["name"] for d in parsed["dimensions"] for c in d.get("categories", [])
-        }
+        prompt_names = {c["name"] for d in parsed["dimensions"] for c in d.get("categories", [])}
         v3_names = valid_category_names(_package_data_path("taxonomy_v3.yaml"))
         assert prompt_names == v3_names, (
             f"LLM prompt taxonomy does not match v3 taxonomy. "
@@ -613,11 +610,7 @@ def _make_trial_dir(tmp_path: Path) -> Path:
         json.dumps(
             {
                 "steps": [
-                    {
-                        "tool_calls": [
-                            {"function_name": "Read", "arguments": {"path": "foo.py"}}
-                        ]
-                    }
+                    {"tool_calls": [{"function_name": "Read", "arguments": {"path": "foo.py"}}]}
                 ]
             }
         )
@@ -814,9 +807,7 @@ class TestAnnotateTrialApi:
         }
 
         mock_client = mock.MagicMock()
-        mock_client.messages.create.return_value = self._mock_tool_use_message(
-            tool_input
-        )
+        mock_client.messages.create.return_value = self._mock_tool_use_message(tool_input)
 
         mock_anthropic = mock.MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
@@ -941,9 +932,7 @@ class TestCacheHitPaths:
 
     def test_claude_code_returns_cached_result(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
-        cached_cats = [
-            {"name": "retrieval_failure", "confidence": 0.9, "evidence": "cached"}
-        ]
+        cached_cats = [{"name": "retrieval_failure", "confidence": 0.9, "evidence": "cached"}]
 
         with (
             mock.patch(
@@ -954,9 +943,7 @@ class TestCacheHitPaths:
                 "agent_diagnostics.llm_annotator.get_cached",
                 return_value=cached_cats,
             ) as mock_get,
-            mock.patch(
-                "agent_diagnostics.llm_annotator.subprocess.run"
-            ) as mock_run,
+            mock.patch("agent_diagnostics.llm_annotator.subprocess.run") as mock_run,
         ):
             result = annotate_trial_claude_code(trial_dir, {})
 
@@ -967,9 +954,7 @@ class TestCacheHitPaths:
 
     def test_api_returns_cached_result(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
-        cached_cats = [
-            {"name": "query_churn", "confidence": 0.85, "evidence": "cached"}
-        ]
+        cached_cats = [{"name": "query_churn", "confidence": 0.85, "evidence": "cached"}]
 
         mock_anthropic = mock.MagicMock()
 
@@ -1072,9 +1057,7 @@ class TestAnnotateTrialClaudeCodeExceptionHandler:
 class TestAnnotateTrialApiNonListCategories:
     """Test the branch where tool_use block returns non-list categories."""
 
-    def test_non_list_tool_input_categories_returns_empty(
-        self, tmp_path: Path
-    ) -> None:
+    def test_non_list_tool_input_categories_returns_empty(self, tmp_path: Path) -> None:
         trial_dir = _make_trial_dir(tmp_path)
 
         content_block = mock.MagicMock()
@@ -1169,9 +1152,7 @@ class TestAnnotateTrialApiPutCached:
                 "agent_diagnostics.llm_annotator.get_cached",
                 return_value=None,
             ),
-            mock.patch(
-                "agent_diagnostics.llm_annotator.put_cached"
-            ) as mock_put,
+            mock.patch("agent_diagnostics.llm_annotator.put_cached") as mock_put,
         ):
             result = annotate_trial_api(trial_dir, {})
 
@@ -1203,9 +1184,7 @@ class TestAnnotateTrialApiPutCached:
                 "agent_diagnostics.llm_annotator.get_cached",
                 return_value=None,
             ),
-            mock.patch(
-                "agent_diagnostics.llm_annotator.put_cached"
-            ) as mock_put,
+            mock.patch("agent_diagnostics.llm_annotator.put_cached") as mock_put,
         ):
             result = annotate_trial_api(trial_dir, {})
 
@@ -1312,9 +1291,7 @@ class TestAnnotateBatchClaudeCode:
         for r in results:
             assert isinstance(r, AnnotationOk)
 
-    def test_batch_subprocess_failure_returns_empty_for_that_trial(
-        self, tmp_path: Path
-    ) -> None:
+    def test_batch_subprocess_failure_returns_empty_for_that_trial(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
 
         async def _failing_subprocess(*args, **kwargs):
@@ -1339,9 +1316,7 @@ class TestAnnotateBatchClaudeCode:
         assert isinstance(results[0], AnnotationError)
         assert "rc=1" in results[0].reason
 
-    def test_batch_timeout_returns_empty_for_that_trial(
-        self, tmp_path: Path
-    ) -> None:
+    def test_batch_timeout_returns_empty_for_that_trial(self, tmp_path: Path) -> None:
         t1 = _make_trial_dir(tmp_path / "a")
 
         async def _timeout_subprocess(*args, **kwargs):
@@ -1423,9 +1398,7 @@ class TestAnnotateBatchClaudeCode:
         async def _error_envelope_subprocess(*args, **kwargs):
             proc = mock.MagicMock()
             proc.returncode = 0
-            envelope = json.dumps(
-                {"is_error": True, "result": "", "structured_output": None}
-            )
+            envelope = json.dumps({"is_error": True, "result": "", "structured_output": None})
             proc.communicate = mock.AsyncMock(return_value=(envelope.encode(), b""))
             return proc
 
@@ -1533,9 +1506,7 @@ class TestAnnotateBatchApi:
         t1 = _make_trial_dir(tmp_path / "a")
 
         mock_aclient = mock.MagicMock()
-        mock_aclient.messages.create = mock.AsyncMock(
-            side_effect=RuntimeError("API down")
-        )
+        mock_aclient.messages.create = mock.AsyncMock(side_effect=RuntimeError("API down"))
 
         mock_anthropic = mock.MagicMock()
         mock_anthropic.AsyncAnthropic.return_value = mock_aclient

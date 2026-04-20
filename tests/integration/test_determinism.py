@@ -71,9 +71,7 @@ class TestFixtureStructure:
 
     def test_at_least_14_trial_directories(self) -> None:
         trial_dirs = [d for d in TRIALS_DIR.iterdir() if d.is_dir()]
-        assert (
-            len(trial_dirs) >= 14
-        ), f"Expected >= 14 trial directories, found {len(trial_dirs)}"
+        assert len(trial_dirs) >= 14, f"Expected >= 14 trial directories, found {len(trial_dirs)}"
 
     @pytest.mark.parametrize("category", EXPECTED_CATEGORIES)
     def test_trial_directory_exists(self, category: str) -> None:
@@ -132,9 +130,7 @@ class TestFakeLLMBackendDeterminism:
         result_b = backend_b.annotate_json(prompt)
 
         assert result_a == result_b, (
-            f"Non-deterministic output for {category}:\n"
-            f"  run 1: {result_a}\n"
-            f"  run 2: {result_b}"
+            f"Non-deterministic output for {category}:\n  run 1: {result_a}\n  run 2: {result_b}"
         )
 
     def test_full_sweep_deterministic(self) -> None:
@@ -188,9 +184,9 @@ class TestFakeLLMBackendDeterminism:
 
             result_names = {c["name"] for c in result["categories"]}
             expected_names = {c["name"] for c in expected["categories"]}
-            assert expected_names.issubset(
-                result_names
-            ), f"Category {category}: expected {expected_names} in {result_names}"
+            assert expected_names.issubset(result_names), (
+                f"Category {category}: expected {expected_names} in {result_names}"
+            )
 
     def test_output_schema_valid(self) -> None:
         """Every response conforms to the annotation JSON schema."""

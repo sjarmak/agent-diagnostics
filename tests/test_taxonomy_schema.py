@@ -22,9 +22,7 @@ from agent_diagnostics.taxonomy import (
     valid_category_names,
 )
 
-V3_YAML_PATH = (
-    Path(__file__).parent.parent / "src" / "agent_diagnostics" / "taxonomy_v3.yaml"
-)
+V3_YAML_PATH = Path(__file__).parent.parent / "src" / "agent_diagnostics" / "taxonomy_v3.yaml"
 
 VALID_SEVERITIES = {"blocker", "major", "minor"}
 
@@ -160,27 +158,23 @@ class TestCategorySeverity:
 
     def test_all_categories_have_severity(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
-            assert (
-                "severity" in cat
-            ), f"Category '{cat['name']}' missing 'severity' field"
+            assert "severity" in cat, f"Category '{cat['name']}' missing 'severity' field"
 
     def test_severity_values_valid(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
-            assert (
-                cat["severity"] in VALID_SEVERITIES
-            ), f"Category '{cat['name']}' has invalid severity: {cat['severity']}"
+            assert cat["severity"] in VALID_SEVERITIES, (
+                f"Category '{cat['name']}' has invalid severity: {cat['severity']}"
+            )
 
 
 class TestCategoryDerivedFromSignal:
     """Every category must have a derived_from_signal boolean field."""
 
-    def test_all_categories_have_derived_from_signal(
-        self, v3_categories: list[dict]
-    ) -> None:
+    def test_all_categories_have_derived_from_signal(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
-            assert (
-                "derived_from_signal" in cat
-            ), f"Category '{cat['name']}' missing 'derived_from_signal' field"
+            assert "derived_from_signal" in cat, (
+                f"Category '{cat['name']}' missing 'derived_from_signal' field"
+            )
 
     def test_derived_from_signal_is_bool(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
@@ -193,29 +187,27 @@ class TestCategoryDerivedFromSignal:
         """incomplete_solution, near_miss, minimal_progress must be derived."""
         for cat in v3_categories:
             if cat["name"] in DERIVED_FROM_SIGNAL_CATEGORIES:
-                assert (
-                    cat["derived_from_signal"] is True
-                ), f"Category '{cat['name']}' should be derived_from_signal=true"
+                assert cat["derived_from_signal"] is True, (
+                    f"Category '{cat['name']}' should be derived_from_signal=true"
+                )
 
     def test_non_derived_categories(self, v3_categories: list[dict]) -> None:
         """Categories NOT in the derived set should be false."""
         for cat in v3_categories:
             if cat["name"] not in DERIVED_FROM_SIGNAL_CATEGORIES:
-                assert (
-                    cat["derived_from_signal"] is False
-                ), f"Category '{cat['name']}' should be derived_from_signal=false"
+                assert cat["derived_from_signal"] is False, (
+                    f"Category '{cat['name']}' should be derived_from_signal=false"
+                )
 
 
 class TestCategorySignalDependencies:
     """Every category must have a signal_dependencies list."""
 
-    def test_all_categories_have_signal_dependencies(
-        self, v3_categories: list[dict]
-    ) -> None:
+    def test_all_categories_have_signal_dependencies(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
-            assert (
-                "signal_dependencies" in cat
-            ), f"Category '{cat['name']}' missing 'signal_dependencies' field"
+            assert "signal_dependencies" in cat, (
+                f"Category '{cat['name']}' missing 'signal_dependencies' field"
+            )
 
     def test_signal_dependencies_is_list(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
@@ -224,18 +216,14 @@ class TestCategorySignalDependencies:
                 f"{type(cat['signal_dependencies'])}"
             )
 
-    def test_signal_dependencies_contain_strings(
-        self, v3_categories: list[dict]
-    ) -> None:
+    def test_signal_dependencies_contain_strings(self, v3_categories: list[dict]) -> None:
         for cat in v3_categories:
             for dep in cat["signal_dependencies"]:
-                assert isinstance(
-                    dep, str
-                ), f"Category '{cat['name']}' has non-string signal dependency: {dep}"
+                assert isinstance(dep, str), (
+                    f"Category '{cat['name']}' has non-string signal dependency: {dep}"
+                )
 
-    def test_derived_categories_have_reward_dependency(
-        self, v3_categories: list[dict]
-    ) -> None:
+    def test_derived_categories_have_reward_dependency(self, v3_categories: list[dict]) -> None:
         """Derived-from-signal categories should list 'reward' as a dependency."""
         for cat in v3_categories:
             if cat["name"] in DERIVED_FROM_SIGNAL_CATEGORIES:
@@ -244,9 +232,7 @@ class TestCategorySignalDependencies:
                     f"'reward' in signal_dependencies"
                 )
 
-    def test_non_derived_categories_valid_dependencies(
-        self, v3_categories: list[dict]
-    ) -> None:
+    def test_non_derived_categories_valid_dependencies(self, v3_categories: list[dict]) -> None:
         """Non-derived categories may have signal_dependencies as hints but must be lists."""
         for cat in v3_categories:
             if cat["name"] not in DERIVED_FROM_SIGNAL_CATEGORIES:
@@ -290,7 +276,7 @@ class TestCategoryStructure:
     def test_no_duplicate_names(self, v3_categories: list[dict]) -> None:
         names = [cat["name"] for cat in v3_categories]
         assert len(names) == len(set(names)), (
-            f"Duplicate category names: " f"{[n for n in names if names.count(n) > 1]}"
+            f"Duplicate category names: {[n for n in names if names.count(n) > 1]}"
         )
 
     def test_wrong_tool_choice_in_tooluse(self, v3_taxonomy: dict) -> None:

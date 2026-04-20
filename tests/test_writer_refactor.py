@@ -17,7 +17,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-
 from agent_diagnostics.annotation_store import PK_FIELDS, AnnotationStore
 
 # ---------------------------------------------------------------------------
@@ -35,9 +34,7 @@ def _make_signals_list(n: int = 20) -> list[dict]:
         config_name = "default"
         started_at = f"2026-01-01T00:00:{i:02d}Z"
         model = "test-model"
-        trial_id, trial_id_full = compute_trial_id(
-            task_id, config_name, started_at, model
-        )
+        trial_id, trial_id_full = compute_trial_id(task_id, config_name, started_at, model)
         signals.append(
             {
                 "trial_id": trial_id,
@@ -99,9 +96,7 @@ class TestCmdAnnotateStore:
 
         mock_taxonomy.return_value = {"version": "3.0"}
         mock_annotate.return_value = [
-            CategoryAssignment(
-                name="exception_crash", confidence=0.95, evidence="crashed"
-            ),
+            CategoryAssignment(name="exception_crash", confidence=0.95, evidence="crashed"),
         ]
 
         signals = _make_signals_list(3)
@@ -135,9 +130,7 @@ class TestCmdAnnotateStore:
 
     @patch("agent_diagnostics.annotator.annotate_trial")
     @patch("agent_diagnostics.taxonomy.load_taxonomy")
-    def test_no_store_write_when_flag_absent(
-        self, mock_taxonomy, mock_annotate, tmp_path
-    ):
+    def test_no_store_write_when_flag_absent(self, mock_taxonomy, mock_annotate, tmp_path):
         """When --annotations-out is not set, no JSONL file is created."""
         from agent_diagnostics.cli import cmd_annotate
         from agent_diagnostics.types import CategoryAssignment
@@ -190,14 +183,10 @@ class TestCmdLlmAnnotateStore:
         mock_taxonomy.return_value = {"version": "3.0"}
         mock_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "test"},
-                )
+                categories=({"name": "retrieval_failure", "confidence": 0.9, "evidence": "test"},)
             ),
             AnnotationOk(
-                categories=(
-                    {"name": "query_churn", "confidence": 0.8, "evidence": "test2"},
-                )
+                categories=({"name": "query_churn", "confidence": 0.8, "evidence": "test2"},)
             ),
         ]
 
@@ -296,9 +285,7 @@ class TestCmdEnsembleStore:
 
     @patch("agent_diagnostics.ensemble.ensemble_all")
     @patch("agent_diagnostics.classifier.load_model")
-    def test_passes_annotations_out_to_ensemble_all(
-        self, mock_load, mock_ensemble, tmp_path
-    ):
+    def test_passes_annotations_out_to_ensemble_all(self, mock_load, mock_ensemble, tmp_path):
         from agent_diagnostics.cli import cmd_ensemble
 
         signals = _make_signals_list(2)
@@ -351,9 +338,7 @@ class TestEnsembleAllStore:
             patch(
                 "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=[
-                    CategoryAssignment(
-                        name="exception_crash", confidence=0.95, evidence="crashed"
-                    )
+                    CategoryAssignment(name="exception_crash", confidence=0.95, evidence="crashed")
                 ],
             ),
             patch("agent_diagnostics.ensemble.predict_trial", return_value=[]),
@@ -398,9 +383,7 @@ class TestEnsembleAllStore:
             patch(
                 "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=[
-                    CategoryAssignment(
-                        name="exception_crash", confidence=0.95, evidence="crashed"
-                    )
+                    CategoryAssignment(name="exception_crash", confidence=0.95, evidence="crashed")
                 ],
             ),
             patch("agent_diagnostics.ensemble.predict_trial", return_value=[]),
@@ -599,9 +582,7 @@ class TestZeroDuplicatePKs:
 
         mock_llm_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "retrieval_failure", "confidence": 0.85, "evidence": "llm"},
-                )
+                categories=({"name": "retrieval_failure", "confidence": 0.85, "evidence": "llm"},)
             )
             for _ in signals
         ]
@@ -623,9 +604,7 @@ class TestZeroDuplicatePKs:
             "annotations": [
                 {
                     "task_id": sig["task_id"],
-                    "categories": [
-                        {"name": "query_churn", "confidence": 0.75, "evidence": "clf"}
-                    ],
+                    "categories": [{"name": "query_churn", "confidence": 0.75, "evidence": "clf"}],
                 }
                 for sig in signals
             ],
@@ -655,9 +634,7 @@ class TestZeroDuplicatePKs:
             patch(
                 "agent_diagnostics.ensemble.heuristic_annotate",
                 return_value=[
-                    CategoryAssignment(
-                        name="rate_limited_run", confidence=0.8, evidence="ens"
-                    )
+                    CategoryAssignment(name="rate_limited_run", confidence=0.8, evidence="ens")
                 ],
             ),
             patch("agent_diagnostics.ensemble.predict_trial", return_value=[]),
@@ -676,7 +653,8 @@ class TestZeroDuplicatePKs:
         store = AnnotationStore(Path(ann_out))
         all_rows = store.read_annotations()
 
-        # Each writer produced 20 rows with different (trial_id, category, annotator_type, identity)
+        # Each writer produced 20 rows with distinct PKs
+        # (trial_id, category, annotator_type, identity)
         # heuristic: 20 x exception_crash x heuristic x heuristic:rule-engine
         # llm: 20 x retrieval_failure x llm x llm:haiku-4
         # classifier: 20 x query_churn x classifier x classifier:trained-model
@@ -686,9 +664,7 @@ class TestZeroDuplicatePKs:
         # Check no duplicate PKs
         pks = [_pk_tuple(row) for row in all_rows]
         pk_set = set(pks)
-        assert len(pks) == len(
-            pk_set
-        ), f"Found {len(pks) - len(pk_set)} duplicate primary keys"
+        assert len(pks) == len(pk_set), f"Found {len(pks) - len(pk_set)} duplicate primary keys"
 
         # Verify all 4 annotator types are present
         annotator_types = {row["annotator_type"] for row in all_rows}

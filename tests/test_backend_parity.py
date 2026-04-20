@@ -46,12 +46,8 @@ class TestBackendParity:
         assert result_a == result_b
 
         # Validate through the same validation pipeline
-        validated_a = validate_categories(
-            result_a["categories"], Path("/tmp/fake-trial")
-        )
-        validated_b = validate_categories(
-            result_b["categories"], Path("/tmp/fake-trial")
-        )
+        validated_a = validate_categories(result_a["categories"], Path("/tmp/fake-trial"))
+        validated_b = validate_categories(result_b["categories"], Path("/tmp/fake-trial"))
 
         assert validated_a == validated_b
 

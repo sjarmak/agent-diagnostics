@@ -203,10 +203,7 @@ def test_output_validates_against_annotation_schema(
 
     data = json.loads(output.read_text())
     schema_path = (
-        Path(__file__).parent.parent
-        / "src"
-        / "agent_diagnostics"
-        / "annotation_schema.json"
+        Path(__file__).parent.parent / "src" / "agent_diagnostics" / "annotation_schema.json"
     )
     schema = json.loads(schema_path.read_text())
     jsonschema.validate(instance=data, schema=schema)

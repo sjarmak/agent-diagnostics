@@ -6,7 +6,6 @@ import json
 import time
 from pathlib import Path
 
-
 from agent_diagnostics.extract_cache import SignalsCache, compute_content_hash
 from agent_diagnostics.signals import extract_all
 
@@ -117,9 +116,7 @@ class TestExtractAllWithCache:
         assert cache.stats["hits"] == 0
         assert len(cache) == 2
 
-    def test_warm_run_hits_cache_and_returns_identical_signals(
-        self, tmp_path: Path
-    ) -> None:
+    def test_warm_run_hits_cache_and_returns_identical_signals(self, tmp_path: Path) -> None:
         runs = tmp_path / "runs"
         _write_trial(runs, "t1")
         _write_trial(runs, "t2")
@@ -182,9 +179,7 @@ class TestExtractAllWithCache:
         # Generous bound — on a dev laptop this is typically <100ms
         assert elapsed < 5.0, f"warm extraction took {elapsed:.2f}s, expected <5s"
 
-    def test_no_cache_argument_preserves_existing_behavior(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_cache_argument_preserves_existing_behavior(self, tmp_path: Path) -> None:
         runs = tmp_path / "runs"
         _write_trial(runs, "t1")
         signals = extract_all(runs)

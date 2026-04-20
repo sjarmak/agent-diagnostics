@@ -63,24 +63,18 @@ def test_no_judge_flag_in_help():
         timeout=30,
     )
     assert result.returncode == 0
-    assert (
-        "--judge" not in result.stdout
-    ), "--judge flag should not exist on llm-annotate"
+    assert "--judge" not in result.stdout, "--judge flag should not exist on llm-annotate"
 
 
 def test_cli_imports_use_agent_diagnostics():
     """All imports in cli.py use agent_diagnostics, not observatory."""
-    cli_path = (
-        Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "cli.py"
-    )
+    cli_path = Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "cli.py"
     content = cli_path.read_text()
 
     # Should not have bare 'from observatory.' imports
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped.startswith("from observatory.") or stripped.startswith(
-            "import observatory."
-        ):
+        if stripped.startswith("from observatory.") or stripped.startswith("import observatory."):
             pytest.fail(f"Found bare observatory import: {stripped}")
 
     # Should have agent_diagnostics imports
@@ -90,10 +84,7 @@ def test_cli_imports_use_agent_diagnostics():
 def test_dunder_main_imports_from_agent_diagnostics():
     """__main__.py imports from agent_diagnostics.cli."""
     main_path = (
-        Path(__file__).resolve().parent.parent
-        / "src"
-        / "agent_diagnostics"
-        / "__main__.py"
+        Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "__main__.py"
     )
     content = main_path.read_text()
     assert "from agent_diagnostics.cli import main" in content
@@ -374,9 +365,7 @@ class TestCmdExtract:
         mock_extract.return_value = [{"trial_id": "t1"}, {"trial_id": "t2"}]
 
         output = tmp_path / "signals.json"
-        args = argparse.Namespace(
-            runs_dir=str(runs_dir), output=str(output), cache_dir=None
-        )
+        args = argparse.Namespace(runs_dir=str(runs_dir), output=str(output), cache_dir=None)
         cmd_extract(args)
 
         mock_extract.assert_called_once_with(runs_dir, cache=None)
@@ -463,9 +452,7 @@ class TestCmdReport:
         out_dir = tmp_path / "report"
         mock_report.return_value = (out_dir / "report.md", out_dir / "report.json")
 
-        args = argparse.Namespace(
-            annotations=str(ann_file), output_dir=str(out_dir), output=None
-        )
+        args = argparse.Namespace(annotations=str(ann_file), output_dir=str(out_dir), output=None)
         cmd_report(args)
 
         mock_report.assert_called_once()
@@ -533,11 +520,7 @@ class TestCmdLlmAnnotate:
 
         mock_taxonomy.return_value = {"version": "1.0", "categories": []}
         mock_annotate_batch.return_value = [
-            AnnotationOk(
-                categories=(
-                    {"name": "cat1", "confidence": 0.9, "evidence": "test"},
-                )
-            )
+            AnnotationOk(categories=({"name": "cat1", "confidence": 0.9, "evidence": "test"},))
         ]
 
         output = tmp_path / "out.json"
@@ -751,9 +734,7 @@ class TestCmdValidate:
             json.dumps(
                 {
                     "schema_version": "observatory-annotation-v1",
-                    "annotations": [
-                        {"task_id": "t1", "categories": [{"name": "cat1"}]}
-                    ],
+                    "annotations": [{"task_id": "t1", "categories": [{"name": "cat1"}]}],
                 }
             )
         )
@@ -796,9 +777,7 @@ class TestCmdValidate:
         ann_file.write_text(
             json.dumps(
                 {
-                    "annotations": [
-                        {"task_id": "t1", "categories": [{"name": "unknown_cat"}]}
-                    ],
+                    "annotations": [{"task_id": "t1", "categories": [{"name": "unknown_cat"}]}],
                 }
             )
         )
@@ -921,9 +900,7 @@ class TestCmdAnnotateJsonl:
 
     @patch("agent_diagnostics.annotator.annotate_trial")
     @patch("agent_diagnostics.taxonomy.load_taxonomy")
-    def test_json_input_jsonl_output(
-        self, mock_taxonomy, mock_annotate_trial, tmp_path
-    ):
+    def test_json_input_jsonl_output(self, mock_taxonomy, mock_annotate_trial, tmp_path):
         from agent_diagnostics.cli import cmd_annotate
         from agent_diagnostics.types import CategoryAssignment
 
@@ -971,9 +948,7 @@ class TestCalibrateGoldenDirPermissions:
         (trial_dir / "expected_annotations.json").write_text(
             json.dumps(
                 {
-                    "categories": [
-                        {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
-                    ],
+                    "categories": [{"name": "cat_x", "confidence": 0.8, "evidence": "e"}],
                 }
             )
         )
@@ -987,9 +962,7 @@ class TestCalibrateGoldenDirPermissions:
                         {
                             "trial_path": "trial_a",
                             "annotation_result_status": "ok",
-                            "categories": [
-                                {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
-                            ],
+                            "categories": [{"name": "cat_x", "confidence": 0.8, "evidence": "e"}],
                         }
                     ]
                 }
@@ -1078,9 +1051,7 @@ class TestCalibrateSharedTrialsWarning:
     silently pass for a join-key mismatch. Still exits 0 — empty output
     is a valid result, just rarely the one the user meant."""
 
-    def test_calibrate_warns_when_shared_trials_is_zero(
-        self, tmp_path, caplog
-    ):
+    def test_calibrate_warns_when_shared_trials_is_zero(self, tmp_path, caplog):
         import logging
 
         from agent_diagnostics.cli import cmd_calibrate
@@ -1101,9 +1072,7 @@ class TestCalibrateSharedTrialsWarning:
                     "annotations": [
                         {
                             "trial_path": "runs/totally_different_name",
-                            "categories": [
-                                {"name": "cat_x", "confidence": 0.8, "evidence": "e"}
-                            ],
+                            "categories": [{"name": "cat_x", "confidence": 0.8, "evidence": "e"}],
                         }
                     ]
                 }
@@ -1174,17 +1143,14 @@ class TestAnnotateResultStatusField:
         )
         out_path = tmp_path / "annotations.json"
 
-        cmd_annotate(
-            argparse.Namespace(signals=str(signals_path), output=str(out_path))
-        )
+        cmd_annotate(argparse.Namespace(signals=str(signals_path), output=str(out_path)))
         doc = json.loads(out_path.read_text())
         records = {r["trial_path"]: r for r in doc["annotations"]}
 
         # Field is present on every record regardless of branch.
         for trial_path, rec in records.items():
             assert "annotation_result_status" in rec, (
-                f"{trial_path} missing annotation_result_status; keys="
-                f"{sorted(rec.keys())}"
+                f"{trial_path} missing annotation_result_status; keys={sorted(rec.keys())}"
             )
 
         # ok branch: trial with categories
@@ -1231,9 +1197,7 @@ class TestReportAcceptsJSONL:
             + "\n"
         )
         ann_path = tmp_path / f"annotations.{ext}"
-        cmd_annotate(
-            argparse.Namespace(signals=str(signals_path), output=str(ann_path))
-        )
+        cmd_annotate(argparse.Namespace(signals=str(signals_path), output=str(ann_path)))
 
         report_dir = tmp_path / f"report_{ext}"
         cmd_report(
@@ -1275,9 +1239,7 @@ class TestCalibrateAcceptsJSONL:
         golden_dir.mkdir()
         (golden_dir / "t_ok").mkdir()
         (golden_dir / "t_ok" / "expected_annotations.json").write_text(
-            json.dumps(
-                {"categories": [{"name": "premature_termination", "confidence": 0.8}]}
-            )
+            json.dumps({"categories": [{"name": "premature_termination", "confidence": 0.8}]})
         )
 
         # Annotate one signal whose trial_path matches the golden corpus
@@ -1298,11 +1260,7 @@ class TestCalibrateAcceptsJSONL:
             + "\n"
         )
         jsonl_predictor = tmp_path / "predictor.jsonl"
-        cmd_annotate(
-            argparse.Namespace(
-                signals=str(signals_path), output=str(jsonl_predictor)
-            )
-        )
+        cmd_annotate(argparse.Namespace(signals=str(signals_path), output=str(jsonl_predictor)))
 
         cmd_calibrate(
             argparse.Namespace(
@@ -1315,8 +1273,7 @@ class TestCalibrateAcceptsJSONL:
 
         cal = json.loads((tmp_path / "out" / "calibration.json").read_text())
         assert cal["shared_trials"] == 1, (
-            f"expected shared_trials=1 on matching fixture, got "
-            f"{cal['shared_trials']}"
+            f"expected shared_trials=1 on matching fixture, got {cal['shared_trials']}"
         )
 
 
@@ -1436,9 +1393,7 @@ class TestReportOutputFlagNormalisation:
         ann_file = self._write_minimal_annotations(tmp_path)
         out_dir = tmp_path / "ns-out"
 
-        args = argparse.Namespace(
-            annotations=str(ann_file), output_dir=str(out_dir), output=None
-        )
+        args = argparse.Namespace(annotations=str(ann_file), output_dir=str(out_dir), output=None)
         cmd_report(args)
         assert (out_dir / "reliability_report.md").is_file()
 
@@ -1512,9 +1467,7 @@ class TestResolveLogLevel:
         # _clear_env (autouse) guarantees the env var is absent.
         assert _resolve_log_level(verbose=0, quiet=False) == logging.INFO
 
-    def test_does_not_call_legacy_getLevelName_when_mapping_available(
-        self, monkeypatch
-    ):
+    def test_does_not_call_legacy_getLevelName_when_mapping_available(self, monkeypatch):
         """On Python 3.11+ (where getLevelNamesMapping() exists) the
         resolver must prefer that API over the legacy
         ``logging.getLevelName(str)`` name→int lookup.

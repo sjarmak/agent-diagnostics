@@ -228,9 +228,7 @@ class TestPerBenchmarkSummary:
                     benchmark="b1",
                     passed=True,
                     reward=1.0,
-                    categories=[
-                        {"name": "cat_ignored", "confidence": 0.9, "evidence": ""}
-                    ],
+                    categories=[{"name": "cat_ignored", "confidence": 0.9, "evidence": ""}],
                 )
             ]
         )
@@ -284,10 +282,7 @@ class TestPerAgentSummary:
         }
 
     def test_single_model_drops_slash(self) -> None:
-        anns = [
-            _mk(agent="openhands", model="gpt-4", passed=True, reward=1.0)
-            for _ in range(3)
-        ]
+        anns = [_mk(agent="openhands", model="gpt-4", passed=True, reward=1.0) for _ in range(3)]
         frame = _build_trials_frame(anns)
         result = _per_agent_summary(frame)
         assert len(result) == 1
@@ -584,9 +579,7 @@ class TestGenerateReportIntegration:
         assert data["per_benchmark_summary"][0]["mean_reward"] is None
         assert data["per_agent_summary"][0]["mean_reward"] is None
 
-    def test_low_confidence_footnote_rendered_when_applicable(
-        self, tmp_path: Path
-    ) -> None:
+    def test_low_confidence_footnote_rendered_when_applicable(self, tmp_path: Path) -> None:
         # Force one low-N cell.
         anns = [
             _mk(agent="a1", benchmark="b1", passed=True, reward=1.0),
@@ -643,9 +636,7 @@ class TestTrajectoryVolumeCarry:
 class TestAggregateTrajectoryMeans:
     """_aggregate_slice exposes mean_trajectory_length / mean_total_turns."""
 
-    def test_mean_trajectory_length_and_total_turns(
-        self, rich_annotations: list[dict]
-    ) -> None:
+    def test_mean_trajectory_length_and_total_turns(self, rich_annotations: list[dict]) -> None:
         frame = _build_trials_frame(rich_annotations)
         result = _per_benchmark_summary(frame)
         by_name = {r["benchmark"]: r for r in result}
@@ -688,9 +679,7 @@ class TestAggregateTrajectoryMeans:
         assert row["mean_trajectory_length"] is None
         assert row["mean_total_turns"] is None
 
-    def test_per_agent_also_aggregates_means(
-        self, rich_annotations: list[dict]
-    ) -> None:
+    def test_per_agent_also_aggregates_means(self, rich_annotations: list[dict]) -> None:
         frame = _build_trials_frame(rich_annotations)
         result = _per_agent_summary(frame)
         for row in result:
@@ -733,9 +722,7 @@ class TestTrajectoryRendering:
             assert "mean_trajectory_length" in row
             assert "mean_total_turns" in row
 
-    def test_markdown_renders_em_dash_for_none_trajectory(
-        self, tmp_path: Path
-    ) -> None:
+    def test_markdown_renders_em_dash_for_none_trajectory(self, tmp_path: Path) -> None:
         # Annotations without trajectory_length -> mean is None -> "—".
         anns = [
             _mk(passed=True, reward=1.0),

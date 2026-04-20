@@ -303,9 +303,7 @@ class TestExceptionCrash:
         signals = extract_signals(exception_trial, suite_mapping={})
         assert signals["exception_crashed"] is True
 
-    def test_rate_limited_false_for_non_rate_exception(
-        self, exception_trial: Path
-    ) -> None:
+    def test_rate_limited_false_for_non_rate_exception(self, exception_trial: Path) -> None:
         signals = extract_signals(exception_trial, suite_mapping={})
         assert signals["rate_limited"] is False
 
@@ -373,9 +371,7 @@ class TestCustomToolRegistry:
                     _make_step(
                         [
                             _make_tool_call("my_search", {"query": "foo"}),
-                            _make_tool_call(
-                                "my_editor", {"file_path": "/a.py", "content": "x"}
-                            ),
+                            _make_tool_call("my_editor", {"file_path": "/a.py", "content": "x"}),
                         ]
                     ),
                 ],
@@ -572,9 +568,7 @@ class TestFileListExtraction:
                         [
                             _make_tool_call("Read", {"file_path": "/a.py"}),
                             _make_tool_call("Read", {"file_path": "/b.py"}),
-                            _make_tool_call(
-                                "Read", {"file_path": "/a.py"}
-                            ),  # duplicate
+                            _make_tool_call("Read", {"file_path": "/a.py"}),  # duplicate
                         ]
                     ),
                 ],
@@ -600,15 +594,9 @@ class TestFileListExtraction:
                 "steps": [
                     _make_step(
                         [
-                            _make_tool_call(
-                                "Edit", {"file_path": "/x.py", "new_string": "a"}
-                            ),
-                            _make_tool_call(
-                                "Write", {"file_path": "/y.py", "content": "b\nc"}
-                            ),
-                            _make_tool_call(
-                                "Edit", {"file_path": "/x.py", "new_string": "d"}
-                            ),
+                            _make_tool_call("Edit", {"file_path": "/x.py", "new_string": "a"}),
+                            _make_tool_call("Write", {"file_path": "/y.py", "content": "b\nc"}),
+                            _make_tool_call("Edit", {"file_path": "/x.py", "new_string": "d"}),
                         ]
                     ),
                 ],
@@ -634,9 +622,7 @@ class TestFileListExtraction:
                 "steps": [
                     _make_step(
                         [
-                            _make_tool_call(
-                                "mcp__sourcegraph__read_file", {"path": "/remote.py"}
-                            ),
+                            _make_tool_call("mcp__sourcegraph__read_file", {"path": "/remote.py"}),
                         ]
                     ),
                 ],
@@ -762,9 +748,7 @@ class TestNullableReward:
         signals = extract_signals(trial, suite_mapping={})
         assert signals["has_verifier_result"] is False
 
-    def test_has_verifier_result_true_when_verifier_present(
-        self, basic_trial: Path
-    ) -> None:
+    def test_has_verifier_result_true_when_verifier_present(self, basic_trial: Path) -> None:
         signals = extract_signals(basic_trial, suite_mapping={})
         assert signals["has_verifier_result"] is True
 
@@ -803,6 +787,7 @@ class TestNullableReward:
 class TestNoCsbDependencies:
     def test_no_csb_imports(self) -> None:
         import inspect
+
         import agent_diagnostics.signals as mod
 
         source = inspect.getsource(mod)
@@ -1077,9 +1062,7 @@ class TestOpenHandsAutoDetection:
             },
         )
         # Explicitly pass DEFAULT_REGISTRY even though agent is openhands
-        signals = extract_signals(
-            trial, tool_registry=DEFAULT_REGISTRY, suite_mapping={}
-        )
+        signals = extract_signals(trial, tool_registry=DEFAULT_REGISTRY, suite_mapping={})
         assert signals["search_tool_calls"] == 1  # Grep categorized by DEFAULT
 
     def test_missing_agent_info_falls_back_to_default(self, tmp_path: Path) -> None:
@@ -1231,15 +1214,11 @@ class TestDirectoryBenchmarkResolution:
 
 class TestBenchmarkSource:
     def test_source_manifest_from_suite_mapping(self, basic_trial: Path) -> None:
-        signals = extract_signals(
-            basic_trial, suite_mapping={"fix_bug": "swebench_lite"}
-        )
+        signals = extract_signals(basic_trial, suite_mapping={"fix_bug": "swebench_lite"})
         assert signals["benchmark_source"] == "manifest"
 
     def test_source_manifest_from_benchmark_resolver(self, basic_trial: Path) -> None:
-        signals = extract_signals(
-            basic_trial, benchmark_resolver=lambda p: "custom_bench"
-        )
+        signals = extract_signals(basic_trial, benchmark_resolver=lambda p: "custom_bench")
         assert signals["benchmark_source"] == "manifest"
 
     def test_source_directory_fallback(self, tmp_path: Path) -> None:
@@ -1272,9 +1251,7 @@ class TestBenchmarkSource:
         assert signals["benchmark"] == ""
         assert signals["benchmark_source"] == ""
 
-    def test_suite_mapping_takes_precedence_over_directory(
-        self, tmp_path: Path
-    ) -> None:
+    def test_suite_mapping_takes_precedence_over_directory(self, tmp_path: Path) -> None:
         """When suite_mapping matches, directory convention is not used."""
         trial = tmp_path / "openhands_run" / "trial_01"
         trial.mkdir(parents=True)

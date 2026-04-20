@@ -112,30 +112,22 @@ class TestGenerateReportCreatesFiles:
 class TestMarkdownSections:
     """Verify .md contains all required sections."""
 
-    def test_corpus_statistics_section(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_corpus_statistics_section(self, tmp_path: Path, sample_annotations: dict) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
         assert "## Corpus Statistics" in content
 
-    def test_trajectory_dependent_section(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_trajectory_dependent_section(self, tmp_path: Path, sample_annotations: dict) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
         assert "## Trajectory-Dependent Categories" in content
 
-    def test_reward_dependent_section(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_reward_dependent_section(self, tmp_path: Path, sample_annotations: dict) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
         assert "## Reward-Dependent Categories" in content
 
-    def test_config_breakdown_section(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_config_breakdown_section(self, tmp_path: Path, sample_annotations: dict) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
         assert "## Category Breakdown by Config" in content
@@ -147,9 +139,7 @@ class TestMarkdownSections:
         content = md_path.read_text()
         assert "## Top Failure Categories" in content
 
-    def test_success_mode_summary_section(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_success_mode_summary_section(self, tmp_path: Path, sample_annotations: dict) -> None:
         md_path, _ = generate_report(sample_annotations, tmp_path)
         content = md_path.read_text()
         assert "## Success Mode Summary" in content
@@ -163,16 +153,12 @@ class TestJsonKeys:
         data = json.loads(json_path.read_text())
         assert "corpus_stats" in data
 
-    def test_category_counts_key(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_category_counts_key(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         data = json.loads(json_path.read_text())
         assert "category_counts" in data
 
-    def test_category_by_config_key(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_category_by_config_key(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         data = json.loads(json_path.read_text())
         assert "category_by_config" in data
@@ -205,16 +191,12 @@ class TestCorpusStatsCorrect:
 class TestCategoryCountsCorrect:
     """Verify category counting is correct."""
 
-    def test_retrieval_failure_count(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_retrieval_failure_count(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
         assert counts["retrieval_failure"]["count"] == 2
 
-    def test_success_via_code_nav_count(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_success_via_code_nav_count(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         counts = json.loads(json_path.read_text())["category_counts"]
         assert counts["success_via_code_nav"]["count"] == 2
@@ -228,23 +210,17 @@ class TestCategoryCountsCorrect:
 class TestConfigBreakdown:
     """Verify config breakdown groups by config_name."""
 
-    def test_baseline_config_present(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_baseline_config_present(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         by_config = json.loads(json_path.read_text())["category_by_config"]
         assert "baseline" in by_config
 
-    def test_mcp_tools_config_present(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_mcp_tools_config_present(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         by_config = json.loads(json_path.read_text())["category_by_config"]
         assert "mcp_tools" in by_config
 
-    def test_baseline_categories(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_baseline_categories(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         by_config = json.loads(json_path.read_text())["category_by_config"]
         baseline = by_config["baseline"]
@@ -252,9 +228,7 @@ class TestConfigBreakdown:
         assert baseline["query_churn"] == 1
         assert baseline["success_via_code_nav"] == 1
 
-    def test_mcp_tools_categories(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_mcp_tools_categories(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         by_config = json.loads(json_path.read_text())["category_by_config"]
         mcp = by_config["mcp_tools"]
@@ -359,7 +333,7 @@ class TestImportPath:
 # Unit tests for internal helpers
 # ---------------------------------------------------------------------------
 
-from agent_diagnostics.report import (
+from agent_diagnostics.report import (  # noqa: E402
     _category_by_suite,
     _core_task_name,
     _paired_comparison,
@@ -432,9 +406,7 @@ def _make_paired_annotations(
                     "passed": False,
                     "reward": 0.0,
                     "trial_path": f"/runs/{cfg}/{task_name}__hash{i}",
-                    "categories": [
-                        {"name": cat_name, "confidence": 0.9, "evidence": "ev"}
-                    ],
+                    "categories": [{"name": cat_name, "confidence": 0.9, "evidence": "ev"}],
                 }
             )
     return annotations
@@ -470,13 +442,9 @@ class TestPairedComparison:
         anns = _make_paired_annotations(num_tasks=25)
         result = _paired_comparison(anns)
         pair = result[0]
-        a_item = next(
-            i for i in pair["introduced_by_a"] if i["category"] == "cat_only_a"
-        )
+        a_item = next(i for i in pair["introduced_by_a"] if i["category"] == "cat_only_a")
         assert a_item["delta"] == 25
-        b_item = next(
-            i for i in pair["introduced_by_b"] if i["category"] == "cat_only_b"
-        )
+        b_item = next(i for i in pair["introduced_by_b"] if i["category"] == "cat_only_b")
         assert b_item["delta"] == 25  # stored as abs
 
     def test_fewer_than_20_shared_returns_empty(self) -> None:
@@ -513,8 +481,7 @@ class TestPairedComparison:
                     "reward": 0,
                     "trial_path": f"/r/{task}__halpha",
                     "categories": [
-                        {"name": f"acat_{j}", "confidence": 0.9, "evidence": "e"}
-                        for j in range(7)
+                        {"name": f"acat_{j}", "confidence": 0.9, "evidence": "e"} for j in range(7)
                     ],
                 }
             )
@@ -527,9 +494,7 @@ class TestPairedComparison:
                     "passed": False,
                     "reward": 0,
                     "trial_path": f"/r/{task}__hbeta",
-                    "categories": [
-                        {"name": "bcat_0", "confidence": 0.9, "evidence": "e"}
-                    ],
+                    "categories": [{"name": "bcat_0", "confidence": 0.9, "evidence": "e"}],
                 }
             )
         result = _paired_comparison(anns)
@@ -600,9 +565,7 @@ class TestTopCategoriesWithExamples:
         self, polarity_annotations: tuple[list[dict], dict[str, str]]
     ) -> None:
         anns, pm = polarity_annotations
-        result = _top_categories_with_examples(
-            anns, pm, "failure", top_n=1, examples_per=2
-        )
+        result = _top_categories_with_examples(anns, pm, "failure", top_n=1, examples_per=2)
         assert len(result[0]["examples"]) <= 2
 
     def test_success_polarity(
@@ -776,8 +739,8 @@ class TestRenderMarkdownNoSuccesses:
 # Tests for trajectory-aware denominators (unit-trajectory-denominators)
 # ---------------------------------------------------------------------------
 
-from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
-from agent_diagnostics.report import (
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY  # noqa: E402
+from agent_diagnostics.report import (  # noqa: E402
     _category_counts_with_denominators,
     _count_trajectory_available,
 )
@@ -993,7 +956,7 @@ class TestCheckerRequiresTrajectoryMetadata:
 # Tests for co-occurrence matrix and dimension aggregation
 # ---------------------------------------------------------------------------
 
-from agent_diagnostics.report import co_occurrence_matrix, dimension_aggregation
+from agent_diagnostics.report import co_occurrence_matrix, dimension_aggregation  # noqa: E402
 
 
 def _make_cooccurrence_annotations() -> list[dict]:
@@ -1049,9 +1012,9 @@ class TestCoOccurrenceMatrix:
         matrix = co_occurrence_matrix(anns)
         for cat_a in matrix:
             for cat_b in matrix[cat_a]:
-                assert (
-                    matrix[cat_a][cat_b] == matrix[cat_b][cat_a]
-                ), f"Matrix not symmetric at ({cat_a}, {cat_b})"
+                assert matrix[cat_a][cat_b] == matrix[cat_b][cat_a], (
+                    f"Matrix not symmetric at ({cat_a}, {cat_b})"
+                )
 
     def test_diagonal_is_prevalence_count(self) -> None:
         anns = _make_cooccurrence_annotations()
@@ -1069,9 +1032,9 @@ class TestCoOccurrenceMatrix:
         for cat_a in matrix:
             for cat_b in matrix[cat_a]:
                 if cat_a != cat_b:
-                    assert (
-                        -1.0 <= matrix[cat_a][cat_b] <= 1.0
-                    ), f"Phi out of bounds at ({cat_a}, {cat_b}): {matrix[cat_a][cat_b]}"
+                    assert -1.0 <= matrix[cat_a][cat_b] <= 1.0, (
+                        f"Phi out of bounds at ({cat_a}, {cat_b}): {matrix[cat_a][cat_b]}"
+                    )
 
     def test_matrix_shape(self) -> None:
         """Matrix should have entries for all categories that appear."""
@@ -1092,7 +1055,7 @@ class TestCoOccurrenceMatrix:
                 ],
             }
             for i in range(5)
-        ] + [{"task_id": f"t{i+5}", "categories": []} for i in range(5)]
+        ] + [{"task_id": f"t{i + 5}", "categories": []} for i in range(5)]
         matrix = co_occurrence_matrix(anns)
         assert matrix["x"]["y"] > 0
 
@@ -1266,9 +1229,7 @@ class TestDimensionSummaryInReport:
         content = md_path.read_text()
         assert "## Dimension Summary" in content
 
-    def test_dimension_summary_key_in_json(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_dimension_summary_key_in_json(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         data = json.loads(json_path.read_text())
         assert "dimension_summary" in data
@@ -1283,9 +1244,7 @@ class TestDimensionSummaryInReport:
             assert "failure_rate" in info
             assert "trial_count" in info
 
-    def test_co_occurrence_key_in_json(
-        self, tmp_path: Path, sample_annotations: dict
-    ) -> None:
+    def test_co_occurrence_key_in_json(self, tmp_path: Path, sample_annotations: dict) -> None:
         _, json_path = generate_report(sample_annotations, tmp_path)
         data = json.loads(json_path.read_text())
         assert "co_occurrence" in data
@@ -1297,18 +1256,14 @@ class TestDimensionSummaryInReport:
         content = md_path.read_text()
         assert "| Dimension | Trial Count | Failure Rate |" in content
 
-    def test_empty_annotations_no_dimension_summary_section(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_annotations_no_dimension_summary_section(self, tmp_path: Path) -> None:
         """Empty annotations produce no dimension summary section (no dimensions to show)."""
         md_path, _ = generate_report({"annotations": []}, tmp_path)
         content = md_path.read_text()
         # With no annotations, dimension_summary is empty dict, section is skipped
         assert "## Dimension Summary" not in content
 
-    def test_empty_annotations_json_has_empty_dimension_summary(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_annotations_json_has_empty_dimension_summary(self, tmp_path: Path) -> None:
         _, json_path = generate_report({"annotations": []}, tmp_path)
         data = json.loads(json_path.read_text())
         assert data["dimension_summary"] == {}

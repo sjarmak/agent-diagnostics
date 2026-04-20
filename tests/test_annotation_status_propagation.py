@@ -31,10 +31,7 @@ from agent_diagnostics.types import (
 )
 
 _SCHEMA_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "src"
-    / "agent_diagnostics"
-    / "annotation_schema.json"
+    Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "annotation_schema.json"
 )
 
 
@@ -67,9 +64,7 @@ class TestCmdLlmAnnotateVariantHandling:
 
     @patch("agent_diagnostics.llm_annotator.annotate_batch")
     @patch("agent_diagnostics.taxonomy.load_taxonomy")
-    def test_ok_variant_yields_status_ok(
-        self, mock_tax, mock_batch, tmp_path: Path
-    ) -> None:
+    def test_ok_variant_yields_status_ok(self, mock_tax, mock_batch, tmp_path: Path) -> None:
         from agent_diagnostics.cli import cmd_llm_annotate
 
         signals = _make_signals_list(1, tmp_path)
@@ -79,9 +74,7 @@ class TestCmdLlmAnnotateVariantHandling:
         mock_tax.return_value = {"version": "3.0", "categories": []}
         mock_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
-                )
+                categories=({"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},)
             )
         ]
 
@@ -151,9 +144,7 @@ class TestCmdLlmAnnotateVariantHandling:
         signals_file.write_text(json.dumps(signals))
 
         mock_tax.return_value = {"version": "3.0", "categories": []}
-        mock_batch.return_value = [
-            AnnotationError(reason="claude CLI rc=1: timeout")
-        ]
+        mock_batch.return_value = [AnnotationError(reason="claude CLI rc=1: timeout")]
 
         output = tmp_path / "out.json"
         args = argparse.Namespace(
@@ -191,9 +182,7 @@ class TestCmdLlmAnnotateVariantHandling:
         mock_tax.return_value = {"version": "3.0", "categories": []}
         mock_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "query_churn", "confidence": 0.8, "evidence": "e"},
-                )
+                categories=({"name": "query_churn", "confidence": 0.8, "evidence": "e"},)
             ),
             AnnotationNoCategoriesFound(),
             AnnotationError(reason="API rate limited"),
@@ -240,9 +229,7 @@ class TestCmdLlmAnnotateVariantHandling:
         mock_tax.return_value = {"version": "3.0", "categories": []}
         mock_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
-                )
+                categories=({"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},)
             ),
             AnnotationError(reason="timed out"),
         ]
@@ -279,9 +266,7 @@ class TestCmdLlmAnnotateVariantHandling:
         mock_tax.return_value = {"version": "3.0", "categories": []}
         mock_batch.return_value = [
             AnnotationOk(
-                categories=(
-                    {"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},
-                )
+                categories=({"name": "retrieval_failure", "confidence": 0.9, "evidence": "e"},)
             ),
             AnnotationError(reason="boom"),
         ]
@@ -626,9 +611,7 @@ class TestBlendErrorRowSkipping:
 class TestReportAnnotationQualitySection:
     """Verify generate_report surfaces the annotation_summary when present."""
 
-    def test_markdown_includes_annotation_quality_section(
-        self, tmp_path: Path
-    ) -> None:
+    def test_markdown_includes_annotation_quality_section(self, tmp_path: Path) -> None:
         from agent_diagnostics.report import generate_report
 
         annotations = {
@@ -660,9 +643,7 @@ class TestReportAnnotationQualitySection:
         payload = json.loads(json_path.read_text())
         assert payload["annotation_summary"]["error"] == 1
 
-    def test_markdown_omits_section_when_no_summary_present(
-        self, tmp_path: Path
-    ) -> None:
+    def test_markdown_omits_section_when_no_summary_present(self, tmp_path: Path) -> None:
         from agent_diagnostics.report import generate_report
 
         annotations = {
@@ -768,9 +749,7 @@ class TestFakeLLMBackendSetNextResult:
 class TestBatchErrorReasonsPropagate:
     """Async batch paths must surface AnnotationError with a specific reason."""
 
-    def test_claude_code_batch_subprocess_failure_has_reason(
-        self, tmp_path: Path
-    ) -> None:
+    def test_claude_code_batch_subprocess_failure_has_reason(self, tmp_path: Path) -> None:
         from agent_diagnostics.llm_annotator import annotate_batch_claude_code
 
         trial_dir = tmp_path / "trial"

@@ -354,9 +354,7 @@ class TestCompareAnnotationsCalibration:
             }
             for i in range(5)
         ]
-        llm = [
-            {"trial_path": f"t{i}", "categories": [{"name": "cat_a"}]} for i in range(5)
-        ]
+        llm = [{"trial_path": f"t{i}", "categories": [{"name": "cat_a"}]} for i in range(5)]
         file_h = _write_annotations(tmp_path / "h.json", heuristic)
         file_l = _write_annotations(tmp_path / "l.json", llm)
 

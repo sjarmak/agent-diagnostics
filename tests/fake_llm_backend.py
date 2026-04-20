@@ -172,12 +172,9 @@ class FakeLLMBackend:
         :meth:`annotate_as_result` and :meth:`annotate`; once the queue
         empties, the backend falls back to keyword-based category matching.
         """
-        if not isinstance(
-            result, (AnnotationOk, AnnotationNoCategoriesFound, AnnotationError)
-        ):
+        if not isinstance(result, (AnnotationOk, AnnotationNoCategoriesFound, AnnotationError)):
             raise TypeError(
-                f"set_next_result expects an AnnotationResult variant, "
-                f"got {type(result).__name__}"
+                f"set_next_result expects an AnnotationResult variant, got {type(result).__name__}"
             )
         self._next_results.append(result)
 
@@ -226,9 +223,7 @@ class FakeLLMBackend:
             case AnnotationError(reason=reason):
                 raise RuntimeError(f"FakeLLMBackend queued error: {reason}")
             case _:  # pragma: no cover — defensive, union is exhaustive
-                raise TypeError(
-                    f"Unexpected AnnotationResult variant: {type(result)!r}"
-                )
+                raise TypeError(f"Unexpected AnnotationResult variant: {type(result)!r}")
 
     def annotate_json(self, prompt: str) -> str:
         """Like ``annotate`` but returns a JSON string."""

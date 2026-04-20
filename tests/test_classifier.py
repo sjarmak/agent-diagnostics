@@ -176,9 +176,7 @@ class TestTrain:
             tmp_path,
             [{"trial_path": "/no/match", "categories": [{"name": "x"}]}],
         )
-        sig_path = _make_signals_file(
-            tmp_path, [{"trial_path": "/other/path", "reward": 0.5}]
-        )
+        sig_path = _make_signals_file(tmp_path, [{"trial_path": "/other/path", "reward": 0.5}])
         with pytest.raises(ValueError, match="No trials matched"):
             train(llm_path, sig_path)
 
@@ -272,10 +270,7 @@ class TestEvaluate:
 class TestNoForbiddenImports:
     def test_no_numpy_import(self) -> None:
         source = (
-            Path(__file__).resolve().parent.parent
-            / "src"
-            / "agent_diagnostics"
-            / "classifier.py"
+            Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "classifier.py"
         )
         content = source.read_text()
         assert "import numpy" not in content
@@ -283,10 +278,7 @@ class TestNoForbiddenImports:
 
     def test_no_sklearn_import(self) -> None:
         source = (
-            Path(__file__).resolve().parent.parent
-            / "src"
-            / "agent_diagnostics"
-            / "classifier.py"
+            Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "classifier.py"
         )
         content = source.read_text()
         assert "import sklearn" not in content
@@ -294,10 +286,7 @@ class TestNoForbiddenImports:
 
     def test_no_csb_imports(self) -> None:
         source = (
-            Path(__file__).resolve().parent.parent
-            / "src"
-            / "agent_diagnostics"
-            / "classifier.py"
+            Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "classifier.py"
         )
         content = source.read_text()
         assert "from observatory." not in content
@@ -433,9 +422,7 @@ class TestPredictAll:
         ]
 
         fake_taxonomy = {"version": "2.0", "dimensions": []}
-        with patch(
-            "agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy
-        ):
+        with patch("agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy):
             result = predict_all(signals_list, model, threshold=0.01)
 
         assert result["schema_version"] == "observatory-annotation-v1"
@@ -453,9 +440,7 @@ class TestPredictAll:
         signals_list = [_make_signals("/test/0", reward=0.0, passed=False)]
 
         fake_taxonomy = {"version": "2.0", "dimensions": []}
-        with patch(
-            "agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy
-        ):
+        with patch("agent_diagnostics.taxonomy.load_taxonomy", return_value=fake_taxonomy):
             result = predict_all(signals_list, model, threshold=0.01)
 
         for ann in result["annotations"]:
@@ -608,15 +593,15 @@ class TestDerivedCategoriesExcluded:
 
         # None of the derived categories should have classifiers
         for cat in derived_cats:
-            assert (
-                cat not in model["classifiers"]
-            ), f"Derived category {cat!r} should be excluded from training"
+            assert cat not in model["classifiers"], (
+                f"Derived category {cat!r} should be excluded from training"
+            )
 
         # They should appear in skipped_categories
         for cat in derived_cats:
-            assert (
-                cat in model["skipped_categories"]
-            ), f"Derived category {cat!r} should be in skipped_categories"
+            assert cat in model["skipped_categories"], (
+                f"Derived category {cat!r} should be in skipped_categories"
+            )
 
         # Non-derived category should still be trained
         assert "retrieval_failure" in model["classifiers"]

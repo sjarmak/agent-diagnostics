@@ -129,7 +129,7 @@ class TestExportParquet:
     """Tests for export_parquet."""
 
     def test_produces_all_output_files(self, tmp_path):
-        """Export creates signals.parquet, annotations.parquet, manifests.parquet, MANIFEST.json."""
+        """Export creates the 3 parquet outputs plus MANIFEST.json."""
         from agent_diagnostics.export import export_parquet
 
         data_dir = _make_data_dir(tmp_path)
@@ -159,8 +159,7 @@ class TestExportParquet:
                 for j in range(rg.num_columns):
                     col = rg.column(j)
                     assert col.compression == "ZSTD", (
-                        f"{name}.parquet column {j} uses "
-                        f"{col.compression} instead of ZSTD"
+                        f"{name}.parquet column {j} uses {col.compression} instead of ZSTD"
                     )
 
     def test_list_columns_are_native_list_string(self, tmp_path):
@@ -176,12 +175,12 @@ class TestExportParquet:
 
         for col_name in ("tool_call_sequence", "files_read_list", "files_edited_list"):
             field = schema.field(col_name)
-            assert pa.types.is_list(
-                field.type
-            ), f"{col_name} should be list type, got {field.type}"
-            assert pa.types.is_string(
-                field.type.value_type
-            ), f"{col_name} should have string value type, got {field.type.value_type}"
+            assert pa.types.is_list(field.type), (
+                f"{col_name} should be list type, got {field.type}"
+            )
+            assert pa.types.is_string(field.type.value_type), (
+                f"{col_name} should have string value type, got {field.type.value_type}"
+            )
 
     def test_manifest_json_has_required_fields(self, tmp_path):
         """MANIFEST.json contains all required fields."""
@@ -337,9 +336,7 @@ class TestExportParquet:
 
         con = duckdb.connect(":memory:")
         signals_path = str(out_dir / "signals.parquet").replace("'", "''")
-        result = con.execute(
-            f"SELECT count(*) FROM read_parquet('{signals_path}')"
-        ).fetchone()
+        result = con.execute(f"SELECT count(*) FROM read_parquet('{signals_path}')").fetchone()
         con.close()
         assert result == (2,)
 

@@ -32,9 +32,7 @@ class TestVersionResolution:
 class TestVersionFallback:
     """When package metadata is missing, `__version__` falls back to a sentinel."""
 
-    def test_version_fallback_on_package_not_found(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_version_fallback_on_package_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Simulate the package not being installed (e.g. a source checkout
         # without `pip install -e .` having registered metadata). The fallback
         # branch in `agent_diagnostics.__init__` must set __version__ to the

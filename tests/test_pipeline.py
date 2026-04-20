@@ -102,7 +102,7 @@ class TestLoadPipeline:
             load_pipeline(path)
 
     def test_no_stages(self, tmp_path: Path) -> None:
-        path = _write_pipeline(tmp_path, "title = \"empty\"\n")
+        path = _write_pipeline(tmp_path, 'title = "empty"\n')
         with pytest.raises(PipelineError, match=r"\[\[stage\]\]"):
             load_pipeline(path)
 
@@ -114,18 +114,14 @@ class TestIsStale:
             (root / p).write_text("x")
 
     def test_missing_output_is_stale(self, tmp_path: Path) -> None:
-        stage = Stage(
-            name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo"
-        )
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
         (tmp_path / "in.txt").write_text("x")
         stale, reason = is_stale(stage, tmp_path)
         assert stale is True
         assert "missing" in reason
 
     def test_input_newer_than_output_is_stale(self, tmp_path: Path) -> None:
-        stage = Stage(
-            name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo"
-        )
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
         (tmp_path / "out.txt").write_text("x")
         time.sleep(0.01)
         (tmp_path / "in.txt").write_text("x")
@@ -136,9 +132,7 @@ class TestIsStale:
         assert "newer" in reason
 
     def test_output_newer_than_input_is_fresh(self, tmp_path: Path) -> None:
-        stage = Stage(
-            name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo"
-        )
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
         (tmp_path / "in.txt").write_text("x")
         time.sleep(0.01)
         (tmp_path / "out.txt").write_text("y")
@@ -147,9 +141,7 @@ class TestIsStale:
         assert stale is False
 
     def test_directory_input_uses_recursive_mtime(self, tmp_path: Path) -> None:
-        stage = Stage(
-            name="s", inputs=("in/",), outputs=("out.txt",), command="echo"
-        )
+        stage = Stage(name="s", inputs=("in/",), outputs=("out.txt",), command="echo")
         (tmp_path / "in").mkdir()
         (tmp_path / "in" / "a.json").write_text("1")
         (tmp_path / "out.txt").write_text("2")

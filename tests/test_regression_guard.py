@@ -68,10 +68,7 @@ TRAJECTORY_INLINE_FIELDS: frozenset[str] = frozenset(
 )
 
 _SCHEMA_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "src"
-    / "agent_diagnostics"
-    / "annotation_schema.json"
+    Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "annotation_schema.json"
 )
 
 # ---------------------------------------------------------------------------
@@ -111,9 +108,9 @@ class TestTrialSignalsOnlyNewFieldsAreTrialId:
 
     def test_total_field_count_is_31(self) -> None:
         current_fields = get_type_hints(TrialSignals)
-        assert (
-            len(current_fields) == 31
-        ), f"Expected 31 fields (29 original + 2 new), got {len(current_fields)}"
+        assert len(current_fields) == 31, (
+            f"Expected 31 fields (29 original + 2 new), got {len(current_fields)}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,16 +124,16 @@ class TestTrajectoryFieldsInlineInSignals:
     def test_trajectory_fields_in_type_hints(self) -> None:
         hints = get_type_hints(TrialSignals)
         for field in TRAJECTORY_INLINE_FIELDS:
-            assert (
-                field in hints
-            ), f"Trajectory field '{field}' missing from TrialSignals type hints"
+            assert field in hints, (
+                f"Trajectory field '{field}' missing from TrialSignals type hints"
+            )
 
     def test_trajectory_fields_are_lists(self) -> None:
         hints = get_type_hints(TrialSignals)
         for field in TRAJECTORY_INLINE_FIELDS:
-            assert (
-                hints[field] == list[str]
-            ), f"Expected list[str] for '{field}', got {hints[field]}"
+            assert hints[field] == list[str], (
+                f"Expected list[str] for '{field}', got {hints[field]}"
+            )
 
     def test_extract_signals_populates_trajectory_fields(self, tmp_path: Path) -> None:
         """A synthetic trial produces signals with inline trajectory fields."""
@@ -178,9 +175,7 @@ class TestTrajectoryFieldsInlineInSignals:
             },
         )
 
-        signals = extract_signals(
-            trial, suite_mapping={"regression_task": "test_bench"}
-        )
+        signals = extract_signals(trial, suite_mapping={"regression_task": "test_bench"})
 
         # All three trajectory fields must be present and populated
         assert "tool_call_sequence" in signals
@@ -210,9 +205,7 @@ class TestAnnotationSchemaStillValid:
     """annotation_schema.json must load as valid JSON and validate conforming docs."""
 
     def test_schema_file_exists(self) -> None:
-        assert (
-            _SCHEMA_PATH.is_file()
-        ), f"annotation_schema.json not found at {_SCHEMA_PATH}"
+        assert _SCHEMA_PATH.is_file(), f"annotation_schema.json not found at {_SCHEMA_PATH}"
 
     def test_schema_loads_as_valid_json(self) -> None:
         schema = json.loads(_SCHEMA_PATH.read_text())

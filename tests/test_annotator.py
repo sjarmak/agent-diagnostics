@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
-
 from pathlib import Path
+
+import pytest
 
 from agent_diagnostics.annotator import annotate_trial
 from agent_diagnostics.taxonomy import valid_category_names
 from agent_diagnostics.tool_registry import DEFAULT_REGISTRY, ToolRegistry
 from agent_diagnostics.types import CategoryAssignment, TrialSignals
 
-_V3_TAXONOMY = (
-    Path(__file__).parent.parent / "src" / "agent_diagnostics" / "taxonomy_v3.yaml"
-)
+_V3_TAXONOMY = Path(__file__).parent.parent / "src" / "agent_diagnostics" / "taxonomy_v3.yaml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -863,7 +861,7 @@ class TestDefaultRegistryKwarg:
 # Tests for CHECKER_REQUIRES_TRAJECTORY metadata
 # ---------------------------------------------------------------------------
 
-from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY
+from agent_diagnostics.annotator import CHECKER_REQUIRES_TRAJECTORY  # noqa: E402
 
 
 class TestCheckerRequiresTrajectory:
@@ -923,6 +921,6 @@ class TestCheckerRequiresTrajectory:
 
         # Every category we can actually produce must be in the metadata
         for cat in seen_categories:
-            assert (
-                cat in CHECKER_REQUIRES_TRAJECTORY
-            ), f"Category '{cat}' produced by a checker but not in CHECKER_REQUIRES_TRAJECTORY"
+            assert cat in CHECKER_REQUIRES_TRAJECTORY, (
+                f"Category '{cat}' produced by a checker but not in CHECKER_REQUIRES_TRAJECTORY"
+            )

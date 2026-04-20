@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from agent_diagnostics.blend_labels import blend
 
 
@@ -246,9 +245,7 @@ class TestDefaultTrustedCategories:
 
         v3 = load_taxonomy(_package_data_path("taxonomy_v3.yaml"))
         expected_defaults = {
-            cat["name"]
-            for cat in _extract_categories(v3)
-            if cat.get("signal_dependencies")
+            cat["name"] for cat in _extract_categories(v3) if cat.get("signal_dependencies")
         }
         # Sanity: derived reward-band categories must be in the set
         assert {
@@ -269,10 +266,7 @@ class TestDefaultTrustedCategories:
         result = blend(heur, llm)
 
         assert len(result["annotations"]) == len(expected_defaults)
-        assert (
-            set(result["blend_metadata"]["trusted_heuristic_categories"])
-            == expected_defaults
-        )
+        assert set(result["blend_metadata"]["trusted_heuristic_categories"]) == expected_defaults
 
 
 class TestBlendMetadata:
@@ -346,6 +340,4 @@ class TestNoHardcodedTrust:
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
                 }
                 overlap = str_values & hardcoded_cats
-                assert (
-                    not overlap
-                ), f"Found hardcoded category names in blend() source: {overlap}"
+                assert not overlap, f"Found hardcoded category names in blend() source: {overlap}"

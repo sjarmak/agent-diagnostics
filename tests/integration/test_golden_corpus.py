@@ -65,13 +65,9 @@ def _load_trial(trial_dir: Path) -> GoldenTrial:
     return GoldenTrial(
         trial_id_short=trial_dir.name,
         signals=json.loads((trial_dir / "signals.json").read_text(encoding="utf-8")),
-        trajectory=json.loads(
-            (trial_dir / "trajectory.json").read_text(encoding="utf-8")
-        ),
+        trajectory=json.loads((trial_dir / "trajectory.json").read_text(encoding="utf-8")),
         metadata=json.loads((trial_dir / "metadata.json").read_text(encoding="utf-8")),
-        expected=json.loads(
-            (trial_dir / "expected_annotations.json").read_text(encoding="utf-8")
-        ),
+        expected=json.loads((trial_dir / "expected_annotations.json").read_text(encoding="utf-8")),
     )
 
 
@@ -114,9 +110,9 @@ class TestCorpusStructure:
         assert (CORPUS_DIR / "README.md").is_file()
 
     def test_minimum_trial_count(self, golden_trials: list[GoldenTrial]) -> None:
-        assert (
-            len(golden_trials) >= MIN_TRIALS
-        ), f"expected >= {MIN_TRIALS} trials, got {len(golden_trials)}"
+        assert len(golden_trials) >= MIN_TRIALS, (
+            f"expected >= {MIN_TRIALS} trials, got {len(golden_trials)}"
+        )
 
     def test_each_trial_has_all_files(self) -> None:
         expected_files = {
@@ -138,15 +134,13 @@ class TestCoverageMatrix:
 
     def test_at_least_three_agents(self, manifest: dict[str, Any]) -> None:
         agents = manifest.get("agents", [])
-        assert (
-            len(agents) >= MIN_AGENTS
-        ), f"expected >= {MIN_AGENTS} agents, got {agents}"
+        assert len(agents) >= MIN_AGENTS, f"expected >= {MIN_AGENTS} agents, got {agents}"
 
     def test_at_least_five_benchmarks(self, manifest: dict[str, Any]) -> None:
         benchmarks = manifest.get("benchmarks", [])
-        assert (
-            len(benchmarks) >= MIN_BENCHMARKS
-        ), f"expected >= {MIN_BENCHMARKS} benchmarks, got {benchmarks}"
+        assert len(benchmarks) >= MIN_BENCHMARKS, (
+            f"expected >= {MIN_BENCHMARKS} benchmarks, got {benchmarks}"
+        )
 
     def test_mix_of_passed_and_failed(self, manifest: dict[str, Any]) -> None:
         passed = manifest.get("passed_count", 0)
@@ -160,9 +154,7 @@ class TestCoverageMatrix:
     def test_kappa_meets_minimum(self, manifest: dict[str, Any]) -> None:
         kappa = manifest.get("cohen_kappa")
         assert kappa is not None, "manifest missing cohen_kappa"
-        assert (
-            kappa >= MIN_KAPPA
-        ), f"kappa {kappa:.3f} below target {MIN_KAPPA}"
+        assert kappa >= MIN_KAPPA, f"kappa {kappa:.3f} below target {MIN_KAPPA}"
 
 
 class TestCategoryValidity:
@@ -176,19 +168,17 @@ class TestCategoryValidity:
         for trial in golden_trials:
             for cat in trial.expected.get("categories", []):
                 name = cat.get("name")
-                assert (
-                    name in valid_v3_category_names
-                ), f"trial {trial.trial_id_short}: unknown category {name}"
+                assert name in valid_v3_category_names, (
+                    f"trial {trial.trial_id_short}: unknown category {name}"
+                )
 
-    def test_expected_confidence_in_range(
-        self, golden_trials: list[GoldenTrial]
-    ) -> None:
+    def test_expected_confidence_in_range(self, golden_trials: list[GoldenTrial]) -> None:
         for trial in golden_trials:
             for cat in trial.expected.get("categories", []):
                 conf = cat.get("confidence")
-                assert (
-                    conf is None or 0.0 <= conf <= 1.0
-                ), f"{trial.trial_id_short}: confidence out of range {conf}"
+                assert conf is None or 0.0 <= conf <= 1.0, (
+                    f"{trial.trial_id_short}: confidence out of range {conf}"
+                )
 
     def test_curator_notes_present(self, golden_trials: list[GoldenTrial]) -> None:
         for trial in golden_trials:
@@ -209,27 +199,21 @@ class TestCategoryValidity:
 class TestHeuristicAnnotator:
     """Run :func:`annotate_trial` on every trial and assert no crash."""
 
-    def test_annotate_each_trial_smoke(
-        self, golden_trials: list[GoldenTrial]
-    ) -> None:
+    def test_annotate_each_trial_smoke(self, golden_trials: list[GoldenTrial]) -> None:
         for trial in golden_trials:
             result = annotate_trial(cast(TrialSignals, trial.signals))
             assert isinstance(result, list)
 
-    def test_annotate_within_runtime_budget(
-        self, golden_trials: list[GoldenTrial]
-    ) -> None:
+    def test_annotate_within_runtime_budget(self, golden_trials: list[GoldenTrial]) -> None:
         start = time.perf_counter()
         for trial in golden_trials:
             annotate_trial(cast(TrialSignals, trial.signals))
         elapsed = time.perf_counter() - start
-        assert (
-            elapsed < MAX_RUNTIME_SECONDS
-        ), f"annotate_trial x {len(golden_trials)} took {elapsed:.2f}s"
+        assert elapsed < MAX_RUNTIME_SECONDS, (
+            f"annotate_trial x {len(golden_trials)} took {elapsed:.2f}s"
+        )
 
-    def test_heuristic_recall_report(
-        self, golden_trials: list[GoldenTrial]
-    ) -> None:
+    def test_heuristic_recall_report(self, golden_trials: list[GoldenTrial]) -> None:
         """Compute per-category recall and report it.
 
         Reports, does NOT assert thresholds.  Calibration bead owns
@@ -239,9 +223,7 @@ class TestHeuristicAnnotator:
         per_cat_hits: Counter[str] = Counter()
 
         for trial in golden_trials:
-            expected_names = {
-                c["name"] for c in trial.expected.get("categories", [])
-            }
+            expected_names = {c["name"] for c in trial.expected.get("categories", [])}
             heuristic_result = annotate_trial(cast(TrialSignals, trial.signals))
             predicted_names = {a.name for a in heuristic_result}
             for cat in expected_names:
@@ -297,23 +279,16 @@ def _build_prompt(trial: GoldenTrial) -> str:
 class TestLLMRoundTrip:
     """Verify a seeded fake LLM reproduces expected annotations."""
 
-    def test_fake_roundtrip_matches_expected(
-        self, golden_trials: list[GoldenTrial]
-    ) -> None:
-        seed = {
-            t.trial_id_short: t.expected.get("categories", []) for t in golden_trials
-        }
+    def test_fake_roundtrip_matches_expected(self, golden_trials: list[GoldenTrial]) -> None:
+        seed = {t.trial_id_short: t.expected.get("categories", []) for t in golden_trials}
         backend = _SeededFakeBackend(seed)
 
         for trial in golden_trials:
             response = backend.annotate(_build_prompt(trial))
             returned_names = {c["name"] for c in response["categories"]}
-            expected_names = {
-                c["name"] for c in trial.expected.get("categories", [])
-            }
+            expected_names = {c["name"] for c in trial.expected.get("categories", [])}
             assert returned_names == expected_names, (
-                f"{trial.trial_id_short}: round-trip mismatch "
-                f"{returned_names ^ expected_names}"
+                f"{trial.trial_id_short}: round-trip mismatch {returned_names ^ expected_names}"
             )
 
         assert backend.call_count == len(golden_trials)
@@ -339,6 +314,6 @@ def test_overall_runtime_budget(golden_trials: list[GoldenTrial]) -> None:
         backend.annotate(_build_prompt(trial))
 
     elapsed = time.perf_counter() - start
-    assert (
-        elapsed < MAX_RUNTIME_SECONDS
-    ), f"end-to-end runtime {elapsed:.2f}s exceeds {MAX_RUNTIME_SECONDS}s"
+    assert elapsed < MAX_RUNTIME_SECONDS, (
+        f"end-to-end runtime {elapsed:.2f}s exceeds {MAX_RUNTIME_SECONDS}s"
+    )

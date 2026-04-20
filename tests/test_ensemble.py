@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from unittest.mock import patch
 
-
 from agent_diagnostics.ensemble import (
     HEURISTIC_ONLY,
     ensemble_all,
@@ -258,7 +257,7 @@ class TestHeuristicOnly:
         assert HEURISTIC_ONLY == expected
 
     def test_excludes_derived_signal_categories(self) -> None:
-        """near_miss and minimal_progress are derived_from_signal and must not be in HEURISTIC_ONLY."""
+        """near_miss and minimal_progress are derived_from_signal; not in HEURISTIC_ONLY."""
         assert "near_miss" not in HEURISTIC_ONLY
         assert "minimal_progress" not in HEURISTIC_ONLY
 
@@ -362,11 +361,9 @@ class TestNoCsbImports:
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 module = node.module or ""
-                assert not module.startswith(
-                    "observatory."
-                ), f"Found CSB import: from {module}"
+                assert not module.startswith("observatory."), f"Found CSB import: from {module}"
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    assert not alias.name.startswith(
-                        "observatory."
-                    ), f"Found CSB import: import {alias.name}"
+                    assert not alias.name.startswith("observatory."), (
+                        f"Found CSB import: import {alias.name}"
+                    )
