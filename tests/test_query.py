@@ -570,6 +570,41 @@ def test_format_rows_jsonl_one_object_per_line():
     assert parsed_lines[1] == {"name": "Bob, Jr.", "score": 87, "note": 'has "quotes"'}
 
 
+def test_format_rows_jsonl_single_row():
+    """Single-row jsonl output has no trailing newline and no leading blank line.
+
+    Guards the ``'\\n'.join`` edge case on a 1-element list — works correctly
+    today, but easy to break if someone refactors to an accumulator that
+    prepends a separator unconditionally.
+    """
+    from agent_diagnostics.query import format_rows
+
+    output = format_rows([{"name": "Alice", "score": 95}], "jsonl")
+
+    # Exactly one line, no surrounding whitespace.
+    assert output == json.dumps({"name": "Alice", "score": 95})
+    assert "\n" not in output
+    assert json.loads(output) == {"name": "Alice", "score": 95}
+
+
+def test_format_rows_csv_embedded_newline_round_trips():
+    """A '\\n' inside a cell must survive a round-trip through csv.DictReader.
+
+    ``csv.QUOTE_ALL`` plus ``lineterminator="\\n"`` is the contract that makes
+    this work — if either changes, DictReader will split the cell across rows.
+    """
+    from agent_diagnostics.query import format_rows
+
+    rows = [{"name": "Alice", "note": "line one\nline two"}]
+    output = format_rows(rows, "csv")
+
+    reader = csv.DictReader(io.StringIO(output))
+    records = list(reader)
+    assert len(records) == 1
+    assert records[0]["name"] == "Alice"
+    assert records[0]["note"] == "line one\nline two"
+
+
 def test_format_rows_csv_rfc_4180():
     """csv format emits RFC 4180 output with headers, parseable by csv.DictReader."""
     from agent_diagnostics.query import format_rows

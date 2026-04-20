@@ -3,8 +3,6 @@
 Auto-registers ``signals``, ``annotations``, and ``manifests`` table aliases
 from JSONL or Parquet files found in the data directory. Parquet files in
 ``data_dir/export/`` take precedence over JSONL files in ``data_dir/``.
-
-Requires the ``query`` extra: ``pip install agent-diagnostics[query]``.
 """
 
 from __future__ import annotations
@@ -326,6 +324,14 @@ def format_rows(rows: list[dict[str, Any]], fmt: OutputFormat) -> str:
     so the output round-trips through :class:`csv.DictReader` without
     provoking a ``_csv.Error``. JSON/JSONL retain native types where
     possible and fall back to ``str()`` for exotic scalars.
+
+    Column derivation (``table`` and ``csv``): columns are taken from
+    ``rows[0].keys()``. Any key present only on later rows is silently
+    dropped, and any key missing from a later row renders as an empty cell.
+    :func:`run_query` always returns rows with identical keys so this is
+    invisible to typical CLI use, but programmatic callers that synthesise
+    ``rows`` by hand must ensure the first row lists every column they want
+    to render.
 
     Parameters
     ----------
