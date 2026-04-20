@@ -1,0 +1,9 @@
+# Local accelerator for the checks enforced by .github/workflows/ci.yml.
+# Install once: `pip install pre-commit && pre-commit install`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
