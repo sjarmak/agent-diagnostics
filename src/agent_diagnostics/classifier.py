@@ -237,10 +237,10 @@ def train(
     dict
         Model artifact with weights, biases, scaling params, and metadata.
     """
-    with open(llm_file) as f:
-        llm_data = json.load(f)
-    with open(signals_file) as f:
-        all_signals = json.load(f)
+    from agent_diagnostics.signals import load_annotations, load_signals
+
+    llm_data = load_annotations(llm_file)
+    all_signals = load_signals(signals_file)
 
     llm_anns = llm_data.get("annotations", llm_data)
     if not isinstance(llm_anns, list):
@@ -418,10 +418,10 @@ def evaluate(
 
     Returns per-category precision, recall, F1 and confusion counts.
     """
-    with open(llm_file) as f:
-        llm_data = json.load(f)
-    with open(signals_file) as f:
-        all_signals = json.load(f)
+    from agent_diagnostics.signals import load_annotations, load_signals
+
+    llm_data = load_annotations(llm_file)
+    all_signals = load_signals(signals_file)
 
     llm_anns = llm_data.get("annotations", llm_data)
     if not isinstance(llm_anns, list):

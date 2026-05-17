@@ -324,6 +324,7 @@ def cmd_llm_annotate(args):
     import random
 
     from agent_diagnostics.llm_annotator import annotate_batch
+    from agent_diagnostics.signals import load_signals
     from agent_diagnostics.taxonomy import load_taxonomy
     from agent_diagnostics.types import (
         AnnotationError,
@@ -336,8 +337,7 @@ def cmd_llm_annotate(args):
         logger.error("signals file not found: %s", signals_path)
         sys.exit(1)
 
-    with open(signals_path) as f:
-        signals_list = json.load(f)
+    signals_list = load_signals(signals_path)
 
     # Filter to trials that have trajectories on disk
     has_trajectory = [
@@ -513,10 +513,10 @@ def cmd_train(args):
 def cmd_predict(args):
     """Predict categories for all trials using a trained classifier."""
     from agent_diagnostics.classifier import load_model, predict_all
+    from agent_diagnostics.signals import load_signals
 
     model = load_model(args.model)
-    with open(args.signals) as f:
-        signals_list = json.load(f)
+    signals_list = load_signals(args.signals)
 
     result = predict_all(signals_list, model, threshold=args.threshold)
 
@@ -556,10 +556,10 @@ def cmd_ensemble(args):
     """Run two-tier ensemble annotation (heuristic + classifier) on full corpus."""
     from agent_diagnostics.classifier import load_model
     from agent_diagnostics.ensemble import ensemble_all
+    from agent_diagnostics.signals import load_signals
 
     model = load_model(args.model)
-    with open(args.signals) as f:
-        signals_list = json.load(f)
+    signals_list = load_signals(args.signals)
 
     annotations_out = getattr(args, "annotations_out", None)
     result = ensemble_all(

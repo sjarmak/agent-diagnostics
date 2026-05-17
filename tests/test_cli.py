@@ -547,6 +547,55 @@ class TestCmdLlmAnnotate:
             "total": 1,
         }
 
+    @patch("agent_diagnostics.llm_annotator.annotate_batch")
+    @patch("agent_diagnostics.taxonomy.load_taxonomy")
+    def test_accepts_jsonl_signals(self, mock_taxonomy, mock_annotate_batch, tmp_path):
+        """cmd_llm_annotate must load a .jsonl signals file, not just .json.
+
+        The /label slash command defaults --signals to data/signals.jsonl, so
+        llm-annotate must go through load_signals (which handles both formats)
+        rather than a raw json.load that only parses a JSON array.
+        """
+        from agent_diagnostics.cli import cmd_llm_annotate
+
+        trial_dir = tmp_path / "trial1" / "agent"
+        trial_dir.mkdir(parents=True)
+        (trial_dir / "trajectory.json").write_text("[]")
+
+        signals = [
+            {
+                "trial_path": str(tmp_path / "trial1"),
+                "task_id": "task1",
+                "reward": 1.0,
+                "passed": True,
+            }
+        ]
+        signals_file = tmp_path / "signals.jsonl"
+        signals_file.write_text("\n".join(json.dumps(s) for s in signals) + "\n")
+
+        from agent_diagnostics.types import AnnotationOk
+
+        mock_taxonomy.return_value = {"version": "1.0", "categories": []}
+        mock_annotate_batch.return_value = [
+            AnnotationOk(categories=({"name": "cat1", "confidence": 0.9, "evidence": "test"},))
+        ]
+
+        output = tmp_path / "out.json"
+        args = argparse.Namespace(
+            signals=str(signals_file),
+            output=str(output),
+            sample_size=5,
+            model="haiku",
+            backend="claude-code",
+        )
+        cmd_llm_annotate(args)
+
+        mock_annotate_batch.assert_called_once()
+        assert output.exists()
+        data = json.loads(output.read_text())
+        assert len(data["annotations"]) == 1
+        assert data["annotations"][0]["task_id"] == "task1"
+
 
 # ---------------------------------------------------------------------------
 # cmd_train tests
