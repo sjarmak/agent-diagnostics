@@ -3,8 +3,6 @@
 Reads JSONL files (signals, annotations, manifests) from a data directory
 and writes deterministic Parquet files plus a ``MANIFEST.json`` metadata
 envelope to an output directory.
-
-Requires the ``query`` extra: ``pip install agent-diagnostics[query]``.
 """
 
 from __future__ import annotations

@@ -4,13 +4,13 @@ The user's question is in $ARGUMENTS. Translate it into a DuckDB SQL query and r
 
 Available tables:
 
-- `signals` — one row per trial. Key columns: trial_id, task_id, model, benchmark, reward, passed, total_turns, tool_calls_total, search_tool_calls, edit_tool_calls, unique_files_read, unique_files_edited, duration_seconds, exception_crashed, rate_limited, tool_call_sequence (list), files_read_list (list), files_edited_list (list), patch_size_lines, trajectory_length, config_name, agent_name, benchmark_source
-- `annotations` — one row per (trial, category, annotator). Columns: trial_id, category_name, confidence, evidence, annotator_type, annotator_identity, taxonomy_version, annotated_at
+- `signals` — one row per trial. See [docs/schemas/signals.md](../../docs/schemas/signals.md) for the full column list and types.
+- `annotations` — one row per (trial, category, annotator). See [docs/schemas/annotations.md](../../docs/schemas/annotations.md) for the full column list and types.
 
 Steps:
 
 1. Write the SQL query that answers the user's question
-2. Run it: `agent-diagnostics query "<sql>" --data-dir data/`
+2. Run it: `agent-diagnostics query "<sql>" --data-dir data/` (append `--format json` when the output needs to be piped into another tool; other formats: `jsonl`, `csv`, or the default `table`)
 3. Present the results clearly. If the output is large, summarize the key findings.
 4. Suggest a follow-up query if relevant.
 
