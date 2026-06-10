@@ -6,6 +6,8 @@ __pycache__/
 *.pyc
 .coverage
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 htmlcov/
 
 # LLM annotation cache (generated at runtime)
@@ -30,3 +32,16 @@ uv.lock
 
 # Claude Code worktrees (isolation scratch space)
 .claude/worktrees/
+
+# Pipeline runner stage fingerprints (generated at runtime)
+.pipeline-state.json
+
+# prd-build orchestration artifacts
+.prd-build/
+
+# Operator-local Claude notes (not shared)
+CLAUDE.local.md
+
+# Local code-intel tool state (not shared)
+.codegraph/
+.codex/
