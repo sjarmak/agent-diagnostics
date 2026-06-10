@@ -1,3 +1,7 @@
+issue-prefix: agent-diagnostics
+dolt.auto-start: false
+gc.endpoint_origin: inherited_city
+gc.endpoint_status: verified
 # Beads Configuration File
 # This file configures default behavior for all bd commands in this repository
 # All settings can also be set via environment variables (BD_* prefix)
@@ -10,8 +14,6 @@
 
 # Use no-db mode: JSONL-only, no Dolt database
 # When true, bd will use .beads/issues.jsonl as the source of truth
-no-db: true
-
 # Enable JSON output by default
 # json: false
 
@@ -52,5 +54,8 @@ no-db: true
 # - linear.api-key
 # - github.org
 # - github.repo
-
-dolt.auto-start: false
+issue_prefix: agent-diagnostics
+export.auto: false
+types.custom: molecule,convoy,message,event,gate,merge-request,agent,role,rig,session,spec,convergence,step
+dolt:
+  disable-event-flush: true
