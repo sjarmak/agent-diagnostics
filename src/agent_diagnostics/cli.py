@@ -981,6 +981,52 @@ def _collect_golden_corpus(dir_path: Path) -> dict[str, Any]:
     return {"annotations": annotations}
 
 
+def cmd_agreement(args):
+    """Report pairwise inter-annotator agreement (Cohen's kappa) per category.
+
+    Reads the narrow-tall annotation store (the ``--annotations-out`` JSONL
+    that the annotate / llm-annotate / predict / ensemble commands write)
+    and writes ``agreement.md`` + ``agreement.json`` under ``--output-dir``.
+    """
+    from agent_diagnostics.agreement import compute_agreement, format_markdown
+    from agent_diagnostics.annotation_store import AnnotationStore
+
+    annotations_path = Path(args.annotations)
+    if not annotations_path.is_file():
+        logger.error("annotations file not found: %s", annotations_path)
+        sys.exit(1)
+
+    rows = AnnotationStore(annotations_path).read_annotations()
+    summary = compute_agreement(rows)
+
+    n_pairs = len(summary["pairs"])
+    if n_pairs == 0:
+        logger.warning(
+            "fewer than two annotator identities in %s — nothing to compare. "
+            "Run at least two annotators (e.g. `annotate` and `llm-annotate`) "
+            "with --annotations-out pointing at the same store.",
+            annotations_path,
+        )
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    md_path = output_dir / "agreement.md"
+    md_path.write_text(format_markdown(summary))
+
+    json_path = output_dir / "agreement.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    logger.info(
+        "Agreement report: %s (markdown), %s (json). Annotators: %d, pairs: %d",
+        md_path,
+        json_path,
+        len(summary["annotators"]),
+        n_pairs,
+    )
+
+
 def cmd_validate(args):
     """Validate annotation files against schema and taxonomy."""
     import jsonschema
@@ -1342,6 +1388,23 @@ def main():
         help="Output directory for calibration.md + calibration.json",
     )
     p_cal.set_defaults(func=cmd_calibrate)
+
+    # agreement
+    p_agree = subparsers.add_parser(
+        "agreement",
+        help="Report pairwise inter-annotator agreement (Cohen's kappa) per category",
+    )
+    p_agree.add_argument(
+        "--annotations",
+        required=True,
+        help="Narrow-tall annotations JSONL (the --annotations-out store)",
+    )
+    p_agree.add_argument(
+        "--output-dir",
+        required=True,
+        help="Output directory for agreement.md + agreement.json",
+    )
+    p_agree.set_defaults(func=cmd_agreement)
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate annotation files")

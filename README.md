@@ -240,6 +240,7 @@ agent-diagnostics predict          Predict with trained classifier
 agent-diagnostics ensemble         Two-tier ensemble annotation
 agent-diagnostics report           Generate Markdown + JSON report
 agent-diagnostics calibrate        ECE, Brier, reliability diagrams vs a reference
+agent-diagnostics agreement        Pairwise inter-annotator Cohen's kappa per category
 agent-diagnostics validate         Validate annotations against schema
 agent-diagnostics query            Run SQL against the dataset (DuckDB)
 agent-diagnostics export           Export to Parquet with MANIFEST.json
@@ -299,6 +300,26 @@ a `v2` file before interpreting the ECE / Brier output.
 These metrics *describe* how well calibrated the annotator's confidences are.
 They do not fix miscalibration — post-hoc calibration (temperature scaling,
 Platt, isotonic regression) is a separate concern and is not performed here.
+
+## Inter-annotator agreement
+
+Agreement asks the question calibration doesn't: *do independent annotators
+assign the same categories at all?*  When several annotators (heuristic, LLM,
+classifier, ensemble) write to the same narrow-tall store, `agreement`
+computes pairwise **Cohen's kappa** per category over the trials both
+annotators labeled — kappa corrects raw agreement for the agreement expected
+by chance from each annotator's base rates:
+
+```bash
+agent-diagnostics agreement \
+  --annotations data/annotations.jsonl \
+  --output-dir reports/agreement/
+```
+
+Outputs `agreement.md` and `agreement.json` with per-pair shared-trial
+counts and per-category contingency tables.  kappa = 1 is perfect agreement,
+0 is chance level, negative is systematic disagreement; categories where
+both annotators are constant are reported as undefined rather than inflated.
 
 ## Contributing
 
