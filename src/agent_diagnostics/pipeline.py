@@ -3,8 +3,16 @@
 Loads a ``pipeline.toml`` at the project root declaring stages (``extract``,
 ``annotate``, ``report``, ...), each with ``inputs``, ``outputs``, and a
 ``command`` template.  ``observatory pipeline run`` walks the stages in the
-declared order, compares input vs output mtimes, and runs only stages whose
-outputs are stale.
+declared order and runs only stages whose outputs are stale.
+
+Staleness is content-based, not mtime-based: after a stage runs
+successfully, a SHA-256 fingerprint of its input files is recorded in
+``.pipeline-state.json`` at the project root.  A stage is stale when any
+declared output is missing, when no fingerprint has been recorded yet, or
+when the current input content no longer matches the recorded fingerprint.
+mtimes are deliberately ignored — they lie under ``git checkout``,
+``cp -p``, and CI cache restores, which previously let a stage silently
+skip on changed inputs.
 
 Example ``pipeline.toml``::
 
@@ -23,6 +31,8 @@ Example ``pipeline.toml``::
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import shlex
 import subprocess
@@ -31,6 +41,8 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_STATE_FILENAME = ".pipeline-state.json"
 
 
 class PipelineError(Exception):
@@ -113,67 +125,118 @@ def load_pipeline(path: Path) -> list[Stage]:
     return stages
 
 
-def _max_mtime(paths: list[Path]) -> float | None:
-    """Return the latest mtime among *paths* (recursively for dirs), or None.
+def _iter_files(path: Path) -> list[Path]:
+    """Return *path* itself when it is a file, or its files recursively."""
+    if path.is_dir():
+        return sorted(child for child in path.rglob("*") if child.is_file())
+    if path.is_file():
+        return [path]
+    return []
 
-    ``None`` means no path exists at all.
+
+def _hash_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def stage_input_fingerprint(stage: Stage, project_root: Path) -> str | None:
+    """SHA-256 fingerprint over the content of *stage*'s input files.
+
+    The digest covers each file's project-relative path and content hash,
+    so renames, additions, deletions, and edits all change the fingerprint
+    while mtime churn does not.  Returns ``None`` when no input exists.
     """
-    mtimes: list[float] = []
-    for p in paths:
-        if not p.exists():
-            continue
-        if p.is_dir():
-            for child in p.rglob("*"):
-                if child.is_file():
-                    mtimes.append(child.stat().st_mtime)
-        else:
-            mtimes.append(p.stat().st_mtime)
-    return max(mtimes) if mtimes else None
+    root = Path(project_root)
+    entries: list[str] = []
+    for rel in sorted(stage.inputs):
+        for f in _iter_files(root / rel):
+            try:
+                rel_name = f.relative_to(root).as_posix()
+            except ValueError:  # input declared outside the project root
+                rel_name = str(f)
+            entries.append(f"{rel_name}\x00{_hash_file(f)}")
+    if not entries:
+        return None
+    return hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()
 
 
-def _min_mtime(paths: list[Path]) -> float | None:
-    mtimes: list[float] = []
-    for p in paths:
-        if not p.exists():
-            continue
-        if p.is_dir():
-            for child in p.rglob("*"):
-                if child.is_file():
-                    mtimes.append(child.stat().st_mtime)
-        else:
-            mtimes.append(p.stat().st_mtime)
-    return min(mtimes) if mtimes else None
+def load_state(project_root: Path) -> dict[str, Any]:
+    """Read ``.pipeline-state.json`` under *project_root* (empty on absence).
+
+    A malformed state file is reported and treated as empty — every stage
+    with inputs then re-runs once and the file is rewritten, which is safe
+    because stages are re-runnable by contract.
+    """
+    path = Path(project_root) / _STATE_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("ignoring malformed pipeline state %s: %s", path, exc)
+        return {}
+    if not isinstance(data, dict):
+        logger.warning("ignoring malformed pipeline state %s: not an object", path)
+        return {}
+    return data
 
 
-def is_stale(stage: Stage, project_root: Path) -> tuple[bool, str]:
+def save_state(project_root: Path, state: dict[str, Any]) -> None:
+    path = Path(project_root) / _STATE_FILENAME
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(state, fh, indent=2, sort_keys=True)
+
+
+def is_stale(
+    stage: Stage,
+    project_root: Path,
+    state: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
     """Decide whether *stage* needs to run.
 
     Returns ``(stale, reason)``.  A stage is stale when:
 
     - Any declared output is missing, or
-    - The oldest output is older than the newest input.
+    - No input fingerprint has been recorded for it in *state*, or
+    - The recorded input fingerprint no longer matches the input content.
+
+    *state* is the mapping loaded by :func:`load_state`; ``None`` behaves
+    like an empty state (every stage with inputs is stale).
     """
+    stale, reason, _ = _evaluate_stage(stage, project_root, state or {})
+    return stale, reason
+
+
+def _evaluate_stage(
+    stage: Stage,
+    project_root: Path,
+    state: dict[str, Any],
+) -> tuple[bool, str, str | None]:
+    """``is_stale`` plus the computed input fingerprint (for state updates)."""
     root = Path(project_root)
-    input_paths = [root / p for p in stage.inputs]
     output_paths = [root / p for p in stage.outputs]
 
     missing_outputs = [str(p) for p in output_paths if not p.exists()]
     if missing_outputs:
-        return True, f"missing output(s): {', '.join(missing_outputs)}"
+        return True, f"missing output(s): {', '.join(missing_outputs)}", None
 
-    newest_input = _max_mtime(input_paths)
-    if newest_input is None:
+    fingerprint = stage_input_fingerprint(stage, root)
+    if fingerprint is None:
         # No inputs exist — either declarative error or pre-flight stage.
         # Treat as not-stale so we don't endlessly re-run.
-        return False, "no inputs present on disk"
+        return False, "no inputs present on disk", None
 
-    oldest_output = _min_mtime(output_paths)
-    if oldest_output is None:
-        return True, "no outputs produced yet"
-
-    if newest_input > oldest_output:
-        return True, "input newer than output"
-    return False, "up-to-date"
+    entry = state.get(stage.name)
+    recorded = entry.get("inputs_fingerprint") if isinstance(entry, dict) else None
+    if recorded is None:
+        return True, "no recorded input fingerprint", fingerprint
+    if recorded != fingerprint:
+        return True, "input content changed", fingerprint
+    return False, "up-to-date", fingerprint
 
 
 def run_pipeline(
@@ -195,16 +258,27 @@ def run_pipeline(
     stages = load_pipeline(path)
     root = Path(project_root)
     runner = runner or _default_runner
+    state = load_state(root)
 
     results: list[StageResult] = []
     for stage in stages:
-        stale, reason = is_stale(stage, root)
+        # Evaluated per stage at its turn (not up front) so a stage sees the
+        # input content its upstream stages just produced.
+        stale, reason, _ = _evaluate_stage(stage, root, state)
         if not stale:
             results.append(StageResult(name=stage.name, status="skipped", reason=reason))
             continue
         returncode = runner(stage.command, root)
         if returncode == 0:
             results.append(StageResult(name=stage.name, status="ran", reason=reason))
+            # Re-fingerprint after the run: the command may itself have
+            # (re)generated files under a declared input path.
+            fingerprint = stage_input_fingerprint(stage, root)
+            if fingerprint is not None:
+                state[stage.name] = {"inputs_fingerprint": fingerprint}
+                # Persist after every successful stage so a later failure
+                # doesn't force completed stages to re-run next time.
+                save_state(root, state)
         else:
             results.append(
                 StageResult(

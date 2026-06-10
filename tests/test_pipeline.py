@@ -15,7 +15,9 @@ from agent_diagnostics.pipeline import (
     format_summary,
     is_stale,
     load_pipeline,
+    load_state,
     run_pipeline,
+    stage_input_fingerprint,
 )
 
 
@@ -108,10 +110,9 @@ class TestLoadPipeline:
 
 
 class TestIsStale:
-    def _make_files(self, root: Path, inputs: list[str], outputs: list[str]) -> None:
-        for p in inputs + outputs:
-            (root / p).parent.mkdir(parents=True, exist_ok=True)
-            (root / p).write_text("x")
+    def _recorded_state(self, stage: Stage, root: Path) -> dict:
+        """Build a state dict as if *stage* had just run on current inputs."""
+        return {stage.name: {"inputs_fingerprint": stage_input_fingerprint(stage, root)}}
 
     def test_missing_output_is_stale(self, tmp_path: Path) -> None:
         stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
@@ -120,39 +121,75 @@ class TestIsStale:
         assert stale is True
         assert "missing" in reason
 
-    def test_input_newer_than_output_is_stale(self, tmp_path: Path) -> None:
-        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
-        (tmp_path / "out.txt").write_text("x")
-        time.sleep(0.01)
-        (tmp_path / "in.txt").write_text("x")
-        # Force mtime: input strictly newer
-        os.utime(tmp_path / "in.txt", (time.time() + 10, time.time() + 10))
-        stale, reason = is_stale(stage, tmp_path)
-        assert stale is True
-        assert "newer" in reason
-
-    def test_output_newer_than_input_is_fresh(self, tmp_path: Path) -> None:
+    def test_no_recorded_fingerprint_is_stale(self, tmp_path: Path) -> None:
         stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
         (tmp_path / "in.txt").write_text("x")
-        time.sleep(0.01)
         (tmp_path / "out.txt").write_text("y")
-        os.utime(tmp_path / "out.txt", (time.time() + 10, time.time() + 10))
-        stale, reason = is_stale(stage, tmp_path)
-        assert stale is False
+        stale, reason = is_stale(stage, tmp_path, state={})
+        assert stale is True
+        assert "no recorded" in reason
 
-    def test_directory_input_uses_recursive_mtime(self, tmp_path: Path) -> None:
+    def test_matching_fingerprint_is_fresh(self, tmp_path: Path) -> None:
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
+        (tmp_path / "in.txt").write_text("x")
+        (tmp_path / "out.txt").write_text("y")
+        state = self._recorded_state(stage, tmp_path)
+        stale, reason = is_stale(stage, tmp_path, state=state)
+        assert stale is False
+        assert reason == "up-to-date"
+
+    def test_changed_content_with_identical_mtime_is_stale(self, tmp_path: Path) -> None:
+        """The regression mtime checks miss: same size, same mtime, new bytes
+        (git checkout / cp -p / CI cache restore)."""
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
+        in_file = tmp_path / "in.txt"
+        in_file.write_text("x")
+        (tmp_path / "out.txt").write_text("y")
+        state = self._recorded_state(stage, tmp_path)
+        frozen = in_file.stat().st_mtime
+
+        in_file.write_text("z")  # same size, different content
+        os.utime(in_file, (frozen, frozen))  # restore the old mtime
+
+        stale, reason = is_stale(stage, tmp_path, state=state)
+        assert stale is True
+        assert "content changed" in reason
+
+    def test_mtime_churn_without_content_change_stays_fresh(self, tmp_path: Path) -> None:
+        stage = Stage(name="s", inputs=("in.txt",), outputs=("out.txt",), command="echo")
+        (tmp_path / "in.txt").write_text("x")
+        (tmp_path / "out.txt").write_text("y")
+        state = self._recorded_state(stage, tmp_path)
+
+        later = time.time() + 100
+        os.utime(tmp_path / "in.txt", (later, later))
+
+        assert is_stale(stage, tmp_path, state=state)[0] is False
+
+    def test_directory_input_fingerprints_recursively(self, tmp_path: Path) -> None:
         stage = Stage(name="s", inputs=("in/",), outputs=("out.txt",), command="echo")
         (tmp_path / "in").mkdir()
         (tmp_path / "in" / "a.json").write_text("1")
         (tmp_path / "out.txt").write_text("2")
-        os.utime(tmp_path / "out.txt", (time.time() + 10, time.time() + 10))
-        assert is_stale(stage, tmp_path)[0] is False
+        state = self._recorded_state(stage, tmp_path)
+        assert is_stale(stage, tmp_path, state=state)[0] is False
 
-        # Touch a file inside the input directory → stage becomes stale
-        time.sleep(0.01)
-        later = time.time() + 20
-        os.utime(tmp_path / "in" / "a.json", (later, later))
-        assert is_stale(stage, tmp_path)[0] is True
+        # Edit a file inside the input directory → stage becomes stale
+        (tmp_path / "in" / "a.json").write_text("2")
+        assert is_stale(stage, tmp_path, state=state)[0] is True
+
+        # Adding a new file also changes the fingerprint
+        (tmp_path / "in" / "a.json").write_text("1")
+        assert is_stale(stage, tmp_path, state=state)[0] is False
+        (tmp_path / "in" / "b.json").write_text("3")
+        assert is_stale(stage, tmp_path, state=state)[0] is True
+
+    def test_no_inputs_present_is_fresh(self, tmp_path: Path) -> None:
+        stage = Stage(name="s", inputs=("absent.txt",), outputs=("out.txt",), command="echo")
+        (tmp_path / "out.txt").write_text("y")
+        stale, reason = is_stale(stage, tmp_path)
+        assert stale is False
+        assert "no inputs" in reason
 
 
 class TestRunPipeline:
@@ -180,7 +217,85 @@ class TestRunPipeline:
         assert [r.status for r in results] == ["ran"]
         assert commands_run == ["echo a"]
 
-    def test_fresh_stages_skip(self, tmp_path: Path) -> None:
+    def test_fresh_stages_skip_on_second_run(self, tmp_path: Path) -> None:
+        path = _write_pipeline(
+            tmp_path,
+            """
+            [[stage]]
+            name = "a"
+            inputs = ["in.txt"]
+            outputs = ["out.txt"]
+            command = "echo a"
+            """,
+        )
+        (tmp_path / "in.txt").write_text("x")
+
+        calls: list[str] = []
+
+        def runner(cmd: str, cwd: Path) -> int:
+            calls.append(cmd)
+            (cwd / "out.txt").write_text("y")
+            return 0
+
+        first = run_pipeline(path, tmp_path, runner=runner)
+        assert [r.status for r in first] == ["ran"]
+
+        second = run_pipeline(path, tmp_path, runner=runner)
+        assert [r.status for r in second] == ["skipped"]
+        assert calls == ["echo a"]
+
+    def test_changed_input_reruns_after_skip(self, tmp_path: Path) -> None:
+        path = _write_pipeline(
+            tmp_path,
+            """
+            [[stage]]
+            name = "a"
+            inputs = ["in.txt"]
+            outputs = ["out.txt"]
+            command = "echo a"
+            """,
+        )
+        (tmp_path / "in.txt").write_text("x")
+
+        def runner(cmd: str, cwd: Path) -> int:
+            (cwd / "out.txt").write_text("y")
+            return 0
+
+        run_pipeline(path, tmp_path, runner=runner)
+        assert [r.status for r in run_pipeline(path, tmp_path, runner=runner)] == ["skipped"]
+
+        (tmp_path / "in.txt").write_text("x2")
+        results = run_pipeline(path, tmp_path, runner=runner)
+        assert [r.status for r in results] == ["ran"]
+        assert results[0].reason == "input content changed"
+
+    def test_state_file_persisted(self, tmp_path: Path) -> None:
+        path = _write_pipeline(
+            tmp_path,
+            """
+            [[stage]]
+            name = "a"
+            inputs = ["in.txt"]
+            outputs = ["out.txt"]
+            command = "echo a"
+            """,
+        )
+        (tmp_path / "in.txt").write_text("x")
+
+        def runner(cmd: str, cwd: Path) -> int:
+            (cwd / "out.txt").write_text("y")
+            return 0
+
+        run_pipeline(path, tmp_path, runner=runner)
+
+        state = load_state(tmp_path)
+        assert "a" in state
+        assert state["a"]["inputs_fingerprint"] == stage_input_fingerprint(
+            Stage(name="a", inputs=("in.txt",), outputs=("out.txt",), command="echo a"),
+            tmp_path,
+        )
+
+    def test_failed_stage_records_no_fingerprint(self, tmp_path: Path) -> None:
         path = _write_pipeline(
             tmp_path,
             """
@@ -193,18 +308,14 @@ class TestRunPipeline:
         )
         (tmp_path / "in.txt").write_text("x")
         (tmp_path / "out.txt").write_text("y")
-        later = time.time() + 10
-        os.utime(tmp_path / "out.txt", (later, later))
 
-        calls: list[str] = []
+        results = run_pipeline(path, tmp_path, runner=lambda c, w: 1)
+        assert [r.status for r in results] == ["failed"]
+        assert load_state(tmp_path) == {}
 
-        def runner(cmd: str, cwd: Path) -> int:
-            calls.append(cmd)
-            return 0
-
-        results = run_pipeline(path, tmp_path, runner=runner)
-        assert [r.status for r in results] == ["skipped"]
-        assert calls == []
+    def test_malformed_state_file_treated_as_empty(self, tmp_path: Path) -> None:
+        (tmp_path / ".pipeline-state.json").write_text("{not json")
+        assert load_state(tmp_path) == {}
 
     def test_all_up_to_date_message(self, tmp_path: Path) -> None:
         path = _write_pipeline(
@@ -218,11 +329,13 @@ class TestRunPipeline:
             """,
         )
         (tmp_path / "in.txt").write_text("x")
-        (tmp_path / "out.txt").write_text("y")
-        later = time.time() + 10
-        os.utime(tmp_path / "out.txt", (later, later))
 
-        results = run_pipeline(path, tmp_path, runner=lambda c, w: 0)
+        def runner(cmd: str, cwd: Path) -> int:
+            (cwd / "out.txt").write_text("y")
+            return 0
+
+        run_pipeline(path, tmp_path, runner=runner)
+        results = run_pipeline(path, tmp_path, runner=runner)
         assert "all stages up to date" in format_summary(results)
 
     def test_failure_aborts_downstream(self, tmp_path: Path) -> None:
@@ -284,8 +397,9 @@ class TestRunPipeline:
             p = tmp_path / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("ok")
-            later = time.time() + 10
-            os.utime(p, (later, later))
+
+        # First run records fingerprints; the timed second run must skip all.
+        run_pipeline(path, tmp_path, runner=lambda c, w: 0)
 
         start = time.perf_counter()
         results = run_pipeline(path, tmp_path, runner=lambda c, w: 0)
