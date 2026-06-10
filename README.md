@@ -173,7 +173,7 @@ agent-diagnostics annotate --signals data/signals.jsonl --output heuristic.json
 
 ### LLM annotation
 
-Reads actual trajectories and classifies with Claude. Supports `claude-code`, `api`, and `batch` (Message Batches API, 50% cheaper) backends:
+Reads actual trajectories and classifies with Claude. Supports `claude-code`, `api`, and `batch` backends. For anything beyond a handful of trials, prefer `--backend batch` (Message Batches API): 50% cheaper than the synchronous API and not subject to per-minute rate limits. Use `claude-code` (the default) only for small interactive samples where you don't want to set `ANTHROPIC_API_KEY`:
 
 ```bash
 agent-diagnostics llm-annotate --signals data/signals.jsonl --output llm.json \
@@ -205,6 +205,10 @@ agent-diagnostics ensemble --signals data/signals.jsonl --model model.json \
 ```
 
 The store uses PK `(trial_id, category_name, annotator_type, annotator_identity, taxonomy_version)` so multiple annotators (heuristic, LLM, classifier, ensemble, human) can label the same trial without collision.
+
+> **Platform note:** concurrent-writer safety relies on `fcntl.flock`, which
+> is Unix-only (Linux/macOS). On Windows the store works for single-process
+> use but does not guard against concurrent writers.
 
 ## Data formats
 
