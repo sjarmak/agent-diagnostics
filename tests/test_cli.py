@@ -67,18 +67,27 @@ def test_no_judge_flag_in_help():
 
 
 def test_cli_imports_use_agent_diagnostics():
-    """All imports in cli.py use agent_diagnostics, not observatory."""
-    cli_path = Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "cli.py"
-    content = cli_path.read_text()
+    """All imports in the cli package use agent_diagnostics, not observatory."""
+    cli_dir = Path(__file__).resolve().parent.parent / "src" / "agent_diagnostics" / "cli"
+    module_paths = sorted(cli_dir.glob("*.py"))
+    assert module_paths, f"no Python modules found under {cli_dir}"
 
-    # Should not have bare 'from observatory.' imports
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("from observatory.") or stripped.startswith("import observatory."):
-            pytest.fail(f"Found bare observatory import: {stripped}")
+    contents = []
+    for module_path in module_paths:
+        content = module_path.read_text()
+        contents.append(content)
 
-    # Should have agent_diagnostics imports
-    assert "from agent_diagnostics." in content
+        # Should not have bare 'from observatory.' imports
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("from observatory.") or stripped.startswith(
+                "import observatory."
+            ):
+                pytest.fail(f"Found bare observatory import in {module_path.name}: {stripped}")
+
+    # Should have agent_diagnostics imports (checked across the whole package;
+    # individual submodules may not have a top-level agent_diagnostics import)
+    assert "from agent_diagnostics." in "\n".join(contents)
 
 
 def test_dunder_main_imports_from_agent_diagnostics():
