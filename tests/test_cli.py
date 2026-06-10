@@ -678,6 +678,98 @@ class TestCmdTrain:
 
 
 # ---------------------------------------------------------------------------
+# cmd_blend tests
+# ---------------------------------------------------------------------------
+
+
+class TestCmdBlend:
+    """Tests for cmd_blend."""
+
+    def _write_doc(self, path, annotations):
+        path.write_text(
+            json.dumps({"schema_version": "observatory-annotation-v1", "annotations": annotations})
+        )
+        return path
+
+    def _heur_ann(self, trial_path):
+        return {
+            "task_id": "task-1",
+            "trial_path": trial_path,
+            "reward": 0.0,
+            "passed": False,
+            "categories": [{"name": "near_miss", "confidence": 0.9}],
+        }
+
+    def _args(self, tmp_path, **overrides):
+        defaults = dict(
+            heuristic=str(tmp_path / "heur.json"),
+            llm=str(tmp_path / "llm.json"),
+            output=str(tmp_path / "blended.json"),
+            calibration=None,
+            trust_threshold=0.7,
+            max_heuristic_samples=2000,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_writes_blended_document(self, tmp_path):
+        from agent_diagnostics.cli import cmd_blend
+
+        self._write_doc(tmp_path / "heur.json", [self._heur_ann("trial/a")])
+        self._write_doc(tmp_path / "llm.json", [])
+
+        cmd_blend(self._args(tmp_path))
+
+        result = json.loads((tmp_path / "blended.json").read_text())
+        assert "blend_metadata" in result
+        assert result["blend_metadata"]["total_blended"] == 1
+
+    def test_cap_flag_honored_and_drop_warned(self, tmp_path, caplog):
+        from agent_diagnostics.cli import cmd_blend
+
+        self._write_doc(tmp_path / "heur.json", [self._heur_ann(f"trial/{i}") for i in range(5)])
+        self._write_doc(tmp_path / "llm.json", [])
+
+        with caplog.at_level(logging.WARNING, logger="agent_diagnostics.cli"):
+            cmd_blend(self._args(tmp_path, max_heuristic_samples=2))
+
+        result = json.loads((tmp_path / "blended.json").read_text())
+        assert result["blend_metadata"]["heuristic_only_trials"] == 2
+        assert result["blend_metadata"]["heuristic_only_dropped"] == 3
+        assert any("dropped 3 trials" in r.message for r in caplog.records)
+
+    def test_missing_input_exits(self, tmp_path):
+        from agent_diagnostics.cli import cmd_blend
+
+        self._write_doc(tmp_path / "llm.json", [])
+        with pytest.raises(SystemExit):
+            cmd_blend(self._args(tmp_path))
+
+    def test_parser_wires_blend(self, tmp_path, monkeypatch):
+        from agent_diagnostics import cli
+
+        self._write_doc(tmp_path / "heur.json", [])
+        self._write_doc(tmp_path / "llm.json", [])
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "observatory",
+                "blend",
+                "--heuristic",
+                str(tmp_path / "heur.json"),
+                "--llm",
+                str(tmp_path / "llm.json"),
+                "--output",
+                str(tmp_path / "blended.json"),
+                "--max-heuristic-samples",
+                "10",
+            ],
+        )
+        cli.main()
+        assert (tmp_path / "blended.json").is_file()
+
+
+# ---------------------------------------------------------------------------
 # cmd_predict tests
 # ---------------------------------------------------------------------------
 

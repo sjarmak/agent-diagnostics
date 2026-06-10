@@ -463,6 +463,49 @@ def cmd_llm_annotate(args):
         _write_to_annotation_store(rows, annotations_out, taxonomy_version)
 
 
+def cmd_blend(args):
+    """Blend heuristic + LLM annotations into a unified training set."""
+    from agent_diagnostics.blend_labels import blend
+
+    for label, value in (("heuristic", args.heuristic), ("llm", args.llm)):
+        if not Path(value).is_file():
+            logger.error("%s annotations not found: %s", label, value)
+            sys.exit(1)
+    if args.calibration and not Path(args.calibration).is_file():
+        logger.error("calibration file not found: %s", args.calibration)
+        sys.exit(1)
+
+    result = blend(
+        heuristic_file=args.heuristic,
+        llm_file=args.llm,
+        calibration_file=args.calibration,
+        heuristic_trust_threshold=args.trust_threshold,
+        max_heuristic_samples=args.max_heuristic_samples,
+    )
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w") as f:
+        json.dump(result, f, indent=2)
+
+    meta = result["blend_metadata"]
+    if meta["heuristic_only_dropped"]:
+        logger.warning(
+            "heuristic-only sample cap (%d) dropped %d trials — raise "
+            "--max-heuristic-samples to include them",
+            args.max_heuristic_samples,
+            meta["heuristic_only_dropped"],
+        )
+    logger.info(
+        "Blended %d annotations (llm=%d, heuristic-only=%d, skipped errored llm=%d). Output: %s",
+        meta["total_blended"],
+        meta["llm_trials"],
+        meta["heuristic_only_trials"],
+        meta["skipped_errored_llm_trials"],
+        output,
+    )
+
+
 def cmd_train(args):
     """Train per-category classifiers from LLM-labeled data."""
     from agent_diagnostics.classifier import (
@@ -1146,6 +1189,38 @@ def main():
     )
     p_llm.set_defaults(func=cmd_llm_annotate)
 
+    # blend
+    p_blend = subparsers.add_parser(
+        "blend",
+        help="Blend heuristic + LLM annotations into a training set for `train`",
+    )
+    p_blend.add_argument(
+        "--heuristic", required=True, help="Heuristic annotation JSON (corpus-scale)"
+    )
+    p_blend.add_argument("--llm", required=True, help="LLM annotation JSON (sampled)")
+    p_blend.add_argument("--output", required=True, help="Output blended annotation JSON")
+    p_blend.add_argument(
+        "--calibration",
+        default=None,
+        help="Calibration JSON from `calibrate`; per-category F1 decides which "
+        "heuristic categories to trust (default: trust categories with "
+        "signal_dependencies in the taxonomy)",
+    )
+    p_blend.add_argument(
+        "--trust-threshold",
+        type=float,
+        default=0.7,
+        help="Minimum calibration F1 to trust a heuristic category (default: 0.7)",
+    )
+    p_blend.add_argument(
+        "--max-heuristic-samples",
+        type=int,
+        default=2000,
+        help="Cap on heuristic-only trials so they don't swamp LLM labels "
+        "(default: 2000); a warning is logged when the cap drops trials",
+    )
+    p_blend.set_defaults(func=cmd_blend)
+
     # train
     p_train = subparsers.add_parser("train", help="Train classifiers from LLM-labeled data")
     p_train.add_argument("--labels", required=True, help="LLM annotation JSON (training labels)")
@@ -1208,8 +1283,7 @@ def main():
         "--min-f1",
         type=float,
         default=0.7,
-        help="Minimum held-out cross-validated F1 to trust a classifier "
-        "category (default: 0.7)",
+        help="Minimum held-out cross-validated F1 to trust a classifier category (default: 0.7)",
     )
     p_ensemble.add_argument(
         "--max-ece",

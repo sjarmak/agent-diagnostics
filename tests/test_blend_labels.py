@@ -181,6 +181,38 @@ class TestMaxHeuristicSamples:
         assert result["blend_metadata"]["heuristic_only_trials"] == 3
         assert len(result["annotations"]) == 3
 
+    def test_cap_drop_count_reported(self, tmp_path: Path) -> None:
+        """Trials dropped by the cap are counted, never truncated silently."""
+        heur_anns = [
+            _ann(
+                f"trial/h{i}",
+                categories=[{"name": "near_miss", "confidence": 0.9}],
+            )
+            for i in range(10)
+        ]
+        heur = _write_annotation_file(tmp_path, "heur.json", heur_anns)
+        llm = _write_annotation_file(tmp_path, "llm.json", [])
+
+        result = blend(heur, llm, max_heuristic_samples=3)
+
+        assert result["blend_metadata"]["heuristic_only_dropped"] == 7
+
+    def test_no_drop_when_under_cap(self, tmp_path: Path) -> None:
+        heur_anns = [
+            _ann(
+                f"trial/h{i}",
+                categories=[{"name": "near_miss", "confidence": 0.9}],
+            )
+            for i in range(3)
+        ]
+        heur = _write_annotation_file(tmp_path, "heur.json", heur_anns)
+        llm = _write_annotation_file(tmp_path, "llm.json", [])
+
+        result = blend(heur, llm, max_heuristic_samples=3)
+
+        assert result["blend_metadata"]["heuristic_only_dropped"] == 0
+        assert result["blend_metadata"]["heuristic_only_trials"] == 3
+
 
 class TestCalibrationFile:
     def test_calibration_selects_trusted_categories(self, tmp_path: Path) -> None:

@@ -182,12 +182,15 @@ agent-diagnostics llm-annotate --signals data/signals.jsonl --output llm.json \
 
 ### Ensemble (heuristic + classifier)
 
-Two-tier: heuristic rules for structural categories, trained classifier for learned categories:
+Two-tier: heuristic rules for structural categories, trained classifier for learned categories. `blend` merges corpus-scale heuristic labels with the sampled LLM labels into a larger training set (`--max-heuristic-samples` caps the heuristic-only share; dropped trials are reported, never silent):
 
 ```bash
-agent-diagnostics train --labels llm.json --signals data/signals.jsonl --output model.json
+agent-diagnostics blend --heuristic heuristic.json --llm llm.json --output blended.json
+agent-diagnostics train --labels blended.json --signals data/signals.jsonl --output model.json
 agent-diagnostics ensemble --signals data/signals.jsonl --model model.json --output ensemble.json
 ```
+
+`train` cross-validates each category (stratified k-fold) and stores held-out `eval_f1` and `cv_ece` in the model; `ensemble` only trusts categories whose held-out F1 clears `--min-f1` (optionally also gating on calibration with `--max-ece`).
 
 ### Annotation store
 
@@ -231,6 +234,7 @@ agent-diagnostics ingest           Ingest trial directories into signals.jsonl
 agent-diagnostics extract          Extract signals from a single trial directory
 agent-diagnostics annotate         Heuristic annotation
 agent-diagnostics llm-annotate     LLM-assisted annotation
+agent-diagnostics blend            Merge heuristic + LLM labels into a training set
 agent-diagnostics train            Train per-category classifiers
 agent-diagnostics predict          Predict with trained classifier
 agent-diagnostics ensemble         Two-tier ensemble annotation

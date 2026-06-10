@@ -101,6 +101,7 @@ def blend(
     all_paths = set(llm_by_path.keys()) | set(heur_by_path.keys())
     blended: list[dict] = []
     heuristic_only_count = 0
+    heuristic_only_dropped = 0
 
     skipped_errored_llm = 0
     for path in sorted(all_paths):
@@ -138,7 +139,7 @@ def blend(
                         }
 
             base = llm_ann
-        elif heur_ann and heuristic_only_count < max_heuristic_samples:
+        elif heur_ann:
             # Heuristic-only trial: only include trusted categories
             cats_by_name = {}
             for c in heur_ann.get("categories", []):
@@ -151,6 +152,11 @@ def blend(
                     }
             if not cats_by_name:
                 continue  # No trusted categories for this trial
+            if heuristic_only_count >= max_heuristic_samples:
+                # Cap reached: count the drop so callers can report it
+                # instead of truncating silently.
+                heuristic_only_dropped += 1
+                continue
             base = heur_ann
             heuristic_only_count += 1
         else:
@@ -186,6 +192,7 @@ def blend(
         "blend_metadata": {
             "llm_trials": len(llm_anns),
             "heuristic_only_trials": heuristic_only_count,
+            "heuristic_only_dropped": heuristic_only_dropped,
             "total_blended": len(blended),
             "trusted_heuristic_categories": sorted(trusted_heuristic_cats),
             "trust_threshold": heuristic_trust_threshold,
