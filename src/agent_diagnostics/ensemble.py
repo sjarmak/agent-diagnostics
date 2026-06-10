@@ -5,8 +5,14 @@ Tier 1 (heuristic): Structural categories that are deterministic
     (exception_crash, rate_limited_run, edit_verify_loop_failure).
     These have simple, reliable signal rules.
 
-Tier 2 (classifier): Categories with sufficient training data and F1 >= 0.7
-    on the blended training set. Fast, runs on full corpus.
+Tier 2 (classifier): Categories whose held-out cross-validated F1
+    (``eval_f1`` in the model artifact) clears the trust threshold, and —
+    when an ECE gate is set — whose cross-validated calibration error
+    (``cv_ece``) is acceptable. Fast, runs on full corpus.
+
+Models trained before held-out validation existed carry only
+``train_accuracy``; their categories are never trusted (training-set
+metrics overstate reliability) — retrain to populate ``eval_f1``.
 
 Usage::
 
@@ -15,11 +21,14 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from agent_diagnostics.annotator import annotate_trial as heuristic_annotate
 from agent_diagnostics.classifier import predict_trial
 from agent_diagnostics.taxonomy import load_taxonomy
+
+logger = logging.getLogger(__name__)
 
 # Categories where heuristic rules are deterministic and reliable.
 # These don't need the classifier — the rule IS the ground truth.
@@ -32,11 +41,44 @@ HEURISTIC_ONLY: frozenset[str] = frozenset(
 )
 
 
+def trusted_classifier_categories(
+    model: dict,
+    classifier_min_f1: float = 0.7,
+    classifier_max_ece: float | None = None,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Partition the model's categories into trusted and legacy-unvalidated.
+
+    Returns ``(trusted, unvalidated)``:
+
+    - ``trusted``: held-out ``eval_f1`` >= *classifier_min_f1* and, when
+      *classifier_max_ece* is set, ``cv_ece`` <= *classifier_max_ece*.
+    - ``unvalidated``: categories with no ``eval_f1`` at all (model predates
+      held-out CV, or the category had too few examples to cross-validate).
+      These are never trusted — a training-set metric is not a substitute.
+    """
+    trusted: set[str] = set()
+    unvalidated: set[str] = set()
+    for cat_name, clf_meta in model.get("classifiers", {}).items():
+        eval_f1 = clf_meta.get("eval_f1")
+        if eval_f1 is None:
+            unvalidated.add(cat_name)
+            continue
+        if eval_f1 < classifier_min_f1:
+            continue
+        if classifier_max_ece is not None:
+            cv_ece = clf_meta.get("cv_ece")
+            if cv_ece is None or cv_ece > classifier_max_ece:
+                continue
+        trusted.add(cat_name)
+    return frozenset(trusted), frozenset(unvalidated)
+
+
 def ensemble_annotate(
     signals: dict,
     model: dict,
     classifier_threshold: float = 0.5,
     classifier_min_f1: float = 0.7,
+    classifier_max_ece: float | None = None,
 ) -> list[dict]:
     """Annotate a single trial using the two-tier ensemble.
 
@@ -55,22 +97,32 @@ def ensemble_annotate(
                 "source": "heuristic",
             }
 
-    # Tier 2: Classifier for categories with sufficient training data
-    # Only use classifier predictions where training F1 was above threshold
+    # Tier 2: Classifier, only for categories whose held-out CV metrics
+    # clear the trust gate.
+    trusted, _ = trusted_classifier_categories(
+        model,
+        classifier_min_f1=classifier_min_f1,
+        classifier_max_ece=classifier_max_ece,
+    )
     clf_cats = predict_trial(signals, model, threshold=classifier_threshold)
     for c in clf_cats:
         cat_name = c["name"]
         if cat_name in HEURISTIC_ONLY:
             continue  # Heuristic already handled these
-        clf_meta = model["classifiers"].get(cat_name, {})
-        eval_f1 = clf_meta.get("eval_f1", clf_meta.get("train_accuracy", 0))
-        if eval_f1 >= classifier_min_f1 and cat_name not in results:
-            results[cat_name] = {
-                "name": cat_name,
-                "confidence": c["confidence"],
-                "evidence": c["evidence"] + f" [eval_f1={eval_f1:.2f}]",
-                "source": "classifier",
-            }
+        if cat_name not in trusted or cat_name in results:
+            continue
+        clf_meta = model["classifiers"][cat_name]
+        eval_f1 = clf_meta["eval_f1"]
+        cv_ece = clf_meta.get("cv_ece")
+        evidence = c["evidence"] + f" [eval_f1={eval_f1:.2f}]"
+        if cv_ece is not None:
+            evidence += f" [cv_ece={cv_ece:.2f}]"
+        results[cat_name] = {
+            "name": cat_name,
+            "confidence": c["confidence"],
+            "evidence": evidence,
+            "source": "classifier",
+        }
 
     return list(results.values())
 
@@ -80,6 +132,7 @@ def ensemble_all(
     model: dict,
     classifier_threshold: float = 0.5,
     classifier_min_f1: float = 0.7,
+    classifier_max_ece: float | None = None,
     annotations_out: str | None = None,
 ) -> dict:
     """Run ensemble annotation on the full corpus.
@@ -93,7 +146,10 @@ def ensemble_all(
     classifier_threshold:
         Prediction threshold for classifier tier.
     classifier_min_f1:
-        Minimum eval F1 to trust a classifier category.
+        Minimum held-out cross-validated F1 to trust a classifier category.
+    classifier_max_ece:
+        Optional maximum cross-validated ECE; categories above it are
+        excluded even when their F1 clears ``classifier_min_f1``.
     annotations_out:
         Optional path to a JSONL file.  When provided, narrow-tall rows
         are written via :class:`~agent_diagnostics.annotation_store.AnnotationStore`
@@ -101,6 +157,20 @@ def ensemble_all(
     """
     taxonomy = load_taxonomy()
     now = datetime.now(timezone.utc).isoformat()
+
+    _, unvalidated = trusted_classifier_categories(
+        model,
+        classifier_min_f1=classifier_min_f1,
+        classifier_max_ece=classifier_max_ece,
+    )
+    if unvalidated:
+        logger.warning(
+            "model has no held-out eval_f1 for %d categories (%s); they will "
+            "never be trusted — retrain with `observatory train` to populate "
+            "cross-validated metrics",
+            len(unvalidated),
+            ", ".join(sorted(unvalidated)),
+        )
 
     annotations = []
     tier_counts: dict[str, int] = {"heuristic": 0, "classifier": 0}
@@ -110,6 +180,7 @@ def ensemble_all(
             model,
             classifier_threshold=classifier_threshold,
             classifier_min_f1=classifier_min_f1,
+            classifier_max_ece=classifier_max_ece,
         )
         if not cats:
             continue
@@ -185,7 +256,9 @@ def ensemble_all(
                 f"{tier_counts.get('heuristic', 0)} assignments) + "
                 f"classifier({len(model['classifiers'])} trained, "
                 f"{tier_counts.get('classifier', 0)} assignments, "
-                f"threshold={classifier_threshold}, min_f1={classifier_min_f1})"
+                f"threshold={classifier_threshold}, min_f1={classifier_min_f1}"
+                + (f", max_ece={classifier_max_ece}" if classifier_max_ece is not None else "")
+                + ")"
             ),
         },
         "annotations": annotations,

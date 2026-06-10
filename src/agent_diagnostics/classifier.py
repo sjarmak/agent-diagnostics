@@ -7,6 +7,10 @@ training labels.
 Design:
 - Features: 21 numeric/boolean signals per trial (no text features needed).
 - Model: per-category logistic regression with class-weight balancing.
+- Validation: stratified k-fold cross-validation per category; the pooled
+  out-of-fold predictions yield ``eval_f1`` / ``eval_precision`` /
+  ``eval_recall`` / ``cv_ece`` stored in the model artifact. These are the
+  numbers the ensemble trust gate consumes — never training-set metrics.
 - Output: predicted categories with calibrated probabilities.
 - Storage: single JSON file containing per-category model weights.
 - Inference: pure Python, no external dependencies.
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +173,120 @@ def _predict_proba(
     return _sigmoid(_dot(weights, xs) + bias)
 
 
+# --- Cross-validation ---
+
+# Fixed seed so fold assignment (and therefore eval_f1 / cv_ece in the model
+# artifact) is reproducible across train runs on identical inputs.
+_CV_SEED = 42
+
+_ECE_BINS = 10
+
+
+def _stratified_folds(labels: list[int], k: int) -> list[list[int]]:
+    """Assign sample indices to *k* folds, stratified by class.
+
+    Positives and negatives are shuffled (seeded) and dealt round-robin so
+    every fold carries approximately the same class balance.
+    """
+    rng = random.Random(_CV_SEED)
+    pos_idx = [i for i, label in enumerate(labels) if label == 1]
+    neg_idx = [i for i, label in enumerate(labels) if label == 0]
+    rng.shuffle(pos_idx)
+    rng.shuffle(neg_idx)
+
+    folds: list[list[int]] = [[] for _ in range(k)]
+    for j, i in enumerate(pos_idx):
+        folds[j % k].append(i)
+    for j, i in enumerate(neg_idx):
+        folds[j % k].append(i)
+    return folds
+
+
+def _ece(probs: list[float], labels: list[int], bins: int = _ECE_BINS) -> float:
+    """Expected Calibration Error over equal-width confidence bins."""
+    n = len(probs)
+    if n == 0:
+        return 0.0
+    bin_conf = [0.0] * bins
+    bin_acc = [0.0] * bins
+    bin_count = [0] * bins
+    for p, label in zip(probs, labels):
+        b = min(int(p * bins), bins - 1)
+        bin_conf[b] += p
+        bin_acc[b] += label
+        bin_count[b] += 1
+    ece = 0.0
+    for b in range(bins):
+        if bin_count[b] == 0:
+            continue
+        gap = abs(bin_conf[b] / bin_count[b] - bin_acc[b] / bin_count[b])
+        ece += gap * bin_count[b] / n
+    return ece
+
+
+def _cross_validate(
+    X: list[list[float]],
+    labels: list[int],
+    cv_folds: int,
+    lr: float,
+    epochs: int,
+    l2: float,
+    threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Stratified k-fold CV for one category; metrics on pooled out-of-fold predictions.
+
+    Scaling parameters are recomputed per fold from the training portion only,
+    so no information from the held-out fold leaks into its predictions.
+
+    Returns a dict with ``eval_f1`` / ``eval_precision`` / ``eval_recall`` /
+    ``cv_ece`` / ``cv_folds``, or ``{"cv_status": "insufficient_data"}`` when
+    the category lacks two examples of either class.
+    """
+    pos = sum(labels)
+    neg = len(labels) - pos
+    # Each training portion needs at least one example of each class, which
+    # stratified folding guarantees once both classes have >= 2 members.
+    if pos < 2 or neg < 2:
+        return {"cv_status": "insufficient_data"}
+
+    k = max(2, min(cv_folds, pos, neg))
+    folds = _stratified_folds(labels, k)
+
+    oof_probs: list[float] = []
+    oof_labels: list[int] = []
+    for fold in folds:
+        held_out = set(fold)
+        train_X = [X[i] for i in range(len(X)) if i not in held_out]
+        train_y = [labels[i] for i in range(len(X)) if i not in held_out]
+        means, stds = _scale(train_X)
+        w, b = _train_binary_lr(train_X, train_y, means, stds, lr=lr, epochs=epochs, l2=l2)
+        for i in fold:
+            oof_probs.append(_predict_proba(X[i], w, b, means, stds))
+            oof_labels.append(labels[i])
+
+    tp = fp = fn = 0
+    for p, label in zip(oof_probs, oof_labels):
+        pred = 1 if p >= threshold else 0
+        if pred == 1 and label == 1:
+            tp += 1
+        elif pred == 1 and label == 0:
+            fp += 1
+        elif pred == 0 and label == 1:
+            fn += 1
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    return {
+        "eval_f1": round(f1, 4),
+        "eval_precision": round(precision, 4),
+        "eval_recall": round(recall, 4),
+        "cv_ece": round(_ece(oof_probs, oof_labels), 4),
+        "cv_folds": k,
+    }
+
+
 # --- Training pipeline ---
 
 
@@ -217,6 +336,7 @@ def train(
     lr: float = 0.1,
     epochs: int = 300,
     l2: float = 0.01,
+    cv_folds: int = 5,
 ) -> dict:
     """Train per-category logistic regression classifiers.
 
@@ -231,11 +351,16 @@ def train(
         Categories with fewer are skipped (too little signal).
     lr, epochs, l2 : float
         Learning rate, training epochs, L2 regularization.
+    cv_folds : int
+        Folds for the held-out cross-validation that produces ``eval_f1``
+        and ``cv_ece`` per category (clamped per category to the minority
+        class count, floor 2).
 
     Returns
     -------
     dict
-        Model artifact with weights, biases, scaling params, and metadata.
+        Model artifact with weights, biases, scaling params, held-out CV
+        metrics per category, and metadata.
     """
     from agent_diagnostics.signals import load_annotations, load_signals
 
@@ -291,12 +416,17 @@ def train(
             if pred == labels[i]:
                 correct += 1
 
+        # Held-out validation: the ensemble trust gate reads eval_f1/cv_ece,
+        # so they must come from out-of-fold predictions, not the train set.
+        cv_metrics = _cross_validate(X, labels, cv_folds, lr=lr, epochs=epochs, l2=l2)
+
         classifiers[cat] = {
             "weights": w,
             "bias": b,
             "positive_count": pos,
             "total_count": len(labels),
             "train_accuracy": round(correct / len(labels), 4),
+            **cv_metrics,
         }
 
     model = {
@@ -308,7 +438,7 @@ def train(
         "skipped_categories": skipped,
         "training_samples": len(X),
         "min_positive": min_positive,
-        "hyperparams": {"lr": lr, "epochs": epochs, "l2": l2},
+        "hyperparams": {"lr": lr, "epochs": epochs, "l2": l2, "cv_folds": cv_folds},
     }
 
     return model
@@ -485,19 +615,29 @@ def format_eval_markdown(eval_results: dict, model: dict) -> str:
         f"{', '.join(model['skipped_categories']) or 'none'}"
     )
     lines.append("")
-    lines.append("| Category | TP | FP | FN | Precision | Recall | F1 | Train Acc |")
-    lines.append("|----------|---:|---:|---:|----------:|-------:|---:|----------:|")
+    lines.append(
+        "| Category | TP | FP | FN | Precision | Recall | F1 | Train Acc | CV F1 | CV ECE |"
+    )
+    lines.append(
+        "|----------|---:|---:|---:|----------:|-------:|---:|----------:|------:|-------:|"
+    )
 
     for cat in sorted(eval_results, key=lambda c: -eval_results[c].get("f1", -1)):
         r = eval_results[cat]
         if r.get("status") == "no_classifier":
-            lines.append(f"| {cat} | — | — | {r['positive_in_eval']} | — | — | — | no clf |")
+            lines.append(
+                f"| {cat} | — | — | {r['positive_in_eval']} | — | — | — | no clf | — | — |"
+            )
             continue
         clf = model["classifiers"].get(cat, {})
+        eval_f1 = clf.get("eval_f1")
+        cv_ece = clf.get("cv_ece")
+        cv_f1_cell = f"{eval_f1:.2f}" if eval_f1 is not None else "—"
+        cv_ece_cell = f"{cv_ece:.2f}" if cv_ece is not None else "—"
         lines.append(
             f"| {cat} | {r['tp']} | {r['fp']} | {r['fn']} "
             f"| {r['precision']:.2f} | {r['recall']:.2f} | {r['f1']:.2f} "
-            f"| {clf.get('train_accuracy', 0):.2f} |"
+            f"| {clf.get('train_accuracy', 0):.2f} | {cv_f1_cell} | {cv_ece_cell} |"
         )
 
     return "\n".join(lines)

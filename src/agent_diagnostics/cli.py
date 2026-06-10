@@ -478,6 +478,7 @@ def cmd_train(args):
         min_positive=args.min_positive,
         lr=args.lr,
         epochs=args.epochs,
+        cv_folds=getattr(args, "cv_folds", 5),
     )
 
     output = Path(args.output)
@@ -494,12 +495,20 @@ def cmd_train(args):
         model["min_positive"],
     )
     for cat, clf in sorted(model["classifiers"].items()):
+        eval_f1 = clf.get("eval_f1")
+        cv_ece = clf.get("cv_ece")
+        cv_suffix = (
+            f", cv_f1={eval_f1:.2f}, cv_ece={cv_ece:.2f}"
+            if eval_f1 is not None and cv_ece is not None
+            else ", cv=insufficient_data"
+        )
         logger.info(
-            "  %s: %d/%d positive, train_acc=%.2f",
+            "  %s: %d/%d positive, train_acc=%.2f%s",
             cat,
             clf["positive_count"],
             clf["total_count"],
             clf["train_accuracy"],
+            cv_suffix,
         )
 
     # If --eval is provided, evaluate on the same data (quick sanity check)
@@ -567,6 +576,7 @@ def cmd_ensemble(args):
         model,
         classifier_threshold=args.threshold,
         classifier_min_f1=args.min_f1,
+        classifier_max_ece=getattr(args, "max_ece", None),
         annotations_out=annotations_out,
     )
 
@@ -1150,6 +1160,13 @@ def main():
     p_train.add_argument("--lr", type=float, default=0.1, help="Learning rate (default: 0.1)")
     p_train.add_argument("--epochs", type=int, default=300, help="Training epochs (default: 300)")
     p_train.add_argument(
+        "--cv-folds",
+        type=int,
+        default=5,
+        help="Cross-validation folds for held-out eval_f1/cv_ece "
+        "(default: 5; clamped per category to the minority class count)",
+    )
+    p_train.add_argument(
         "--eval", action="store_true", help="Evaluate on training data after training"
     )
     p_train.set_defaults(func=cmd_train)
@@ -1191,7 +1208,16 @@ def main():
         "--min-f1",
         type=float,
         default=0.7,
-        help="Minimum train accuracy to use classifier (default: 0.7)",
+        help="Minimum held-out cross-validated F1 to trust a classifier "
+        "category (default: 0.7)",
+    )
+    p_ensemble.add_argument(
+        "--max-ece",
+        type=float,
+        default=None,
+        help="Optional maximum cross-validated ECE to trust a classifier "
+        "category; categories above it are excluded even when F1 passes "
+        "(default: no ECE gate)",
     )
     p_ensemble.add_argument(
         "--annotations-out",

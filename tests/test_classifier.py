@@ -605,3 +605,99 @@ class TestDerivedCategoriesExcluded:
 
         # Non-derived category should still be trained
         assert "retrieval_failure" in model["classifiers"]
+
+
+# ---------------------------------------------------------------------------
+# Tests — held-out cross-validation (eval_f1 / cv_ece in the model artifact)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossValidation:
+    def test_model_carries_cv_metrics(self, tmp_path: Path) -> None:
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3)
+
+        for cat, clf in model["classifiers"].items():
+            assert "eval_f1" in clf, f"{cat} missing eval_f1"
+            assert "eval_precision" in clf
+            assert "eval_recall" in clf
+            assert "cv_ece" in clf
+            assert clf["cv_folds"] >= 2
+            assert 0.0 <= clf["eval_f1"] <= 1.0
+            assert 0.0 <= clf["cv_ece"] <= 1.0
+
+    def test_separable_data_yields_high_cv_f1(self, tmp_path: Path) -> None:
+        """Labels are a function of reward/passed features, so out-of-fold F1
+        must be high — if it isn't, the CV plumbing is broken."""
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path, n=40)
+        model = train(llm_path, sig_path, min_positive=3)
+
+        assert model["classifiers"]["retrieval_failure"]["eval_f1"] >= 0.9
+
+    def test_cv_metrics_deterministic(self, tmp_path: Path) -> None:
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model_a = train(llm_path, sig_path, min_positive=3)
+        model_b = train(llm_path, sig_path, min_positive=3)
+
+        for cat in model_a["classifiers"]:
+            assert model_a["classifiers"][cat]["eval_f1"] == model_b["classifiers"][cat]["eval_f1"]
+            assert model_a["classifiers"][cat]["cv_ece"] == model_b["classifiers"][cat]["cv_ece"]
+
+    def test_single_positive_marks_insufficient_data(self, tmp_path: Path) -> None:
+        """A category with one positive example trains (min_positive=1) but
+        cannot be cross-validated — it must carry cv_status instead of a
+        fabricated eval_f1."""
+        signals_list = [
+            _make_signals(f"/trials/trial_{i}", reward=float(i % 2), passed=bool(i % 2))
+            for i in range(10)
+        ]
+        annotations = [
+            {
+                "trial_path": f"/trials/trial_{i}",
+                "task_id": f"task-{i}",
+                "categories": ([{"name": "query_churn", "confidence": 0.9}] if i == 0 else []),
+            }
+            for i in range(10)
+        ]
+        llm_path = _make_llm_file(tmp_path, annotations)
+        sig_path = _make_signals_file(tmp_path, signals_list)
+
+        model = train(llm_path, sig_path, min_positive=1)
+
+        clf = model["classifiers"]["query_churn"]
+        assert clf["cv_status"] == "insufficient_data"
+        assert "eval_f1" not in clf
+
+    def test_hyperparams_record_cv_folds(self, tmp_path: Path) -> None:
+        llm_path, sig_path = _build_synthetic_dataset(tmp_path)
+        model = train(llm_path, sig_path, min_positive=3, cv_folds=3)
+        assert model["hyperparams"]["cv_folds"] == 3
+
+
+class TestEce:
+    def test_empty_returns_zero(self) -> None:
+        from agent_diagnostics.classifier import _ece
+
+        assert _ece([], []) == 0.0
+
+    def test_perfectly_calibrated_is_near_zero(self) -> None:
+        from agent_diagnostics.classifier import _ece
+
+        # 10 predictions at 0.8 confidence, 8 of which are positive.
+        probs = [0.8] * 10
+        labels = [1] * 8 + [0] * 2
+        assert _ece(probs, labels) == pytest.approx(0.0, abs=1e-9)
+
+    def test_confidently_wrong_is_high(self) -> None:
+        from agent_diagnostics.classifier import _ece
+
+        probs = [0.95] * 10
+        labels = [0] * 10
+        assert _ece(probs, labels) == pytest.approx(0.95, abs=1e-9)
+
+    def test_bounded_zero_one(self) -> None:
+        from agent_diagnostics.classifier import _ece
+
+        probs = [0.1, 0.4, 0.6, 0.9]
+        labels = [0, 1, 0, 1]
+        assert 0.0 <= _ece(probs, labels) <= 1.0

@@ -367,3 +367,159 @@ class TestNoCsbImports:
                     assert not alias.name.startswith("observatory."), (
                         f"Found CSB import: import {alias.name}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Tests: trust gate (held-out eval_f1 + optional ECE gate)
+# ---------------------------------------------------------------------------
+
+
+class TestTrustGate:
+    def test_legacy_model_without_eval_f1_never_trusted(self) -> None:
+        """train_accuracy must NOT substitute for held-out eval_f1."""
+        model = _make_model(
+            classifiers={
+                "retrieval_failure": {
+                    "weights": [0.0] * 21,
+                    "bias": 0.0,
+                    "train_accuracy": 0.99,  # no eval_f1 at all
+                },
+            }
+        )
+        mock_clf_results = [
+            {"name": "retrieval_failure", "confidence": 0.9, "evidence": "clf prob=0.9"}
+        ]
+
+        with (
+            patch("agent_diagnostics.ensemble.heuristic_annotate", return_value=[]),
+            patch("agent_diagnostics.ensemble.predict_trial", return_value=mock_clf_results),
+        ):
+            result = ensemble_annotate(_make_signals(), model, classifier_min_f1=0.7)
+
+        assert result == []
+
+    def test_max_ece_gate_excludes_miscalibrated_category(self) -> None:
+        model = _make_model(
+            classifiers={
+                "retrieval_failure": {
+                    "weights": [0.0] * 21,
+                    "bias": 0.0,
+                    "eval_f1": 0.9,
+                    "cv_ece": 0.4,
+                },
+            }
+        )
+        mock_clf_results = [
+            {"name": "retrieval_failure", "confidence": 0.9, "evidence": "clf prob=0.9"}
+        ]
+
+        with (
+            patch("agent_diagnostics.ensemble.heuristic_annotate", return_value=[]),
+            patch("agent_diagnostics.ensemble.predict_trial", return_value=mock_clf_results),
+        ):
+            excluded = ensemble_annotate(_make_signals(), model, classifier_max_ece=0.2)
+            included = ensemble_annotate(_make_signals(), model, classifier_max_ece=0.5)
+
+        assert excluded == []
+        assert [r["name"] for r in included] == ["retrieval_failure"]
+
+    def test_max_ece_gate_requires_cv_ece_present(self) -> None:
+        """When an ECE gate is requested, a category without cv_ece fails it."""
+        model = _make_model(
+            classifiers={
+                "retrieval_failure": {
+                    "weights": [0.0] * 21,
+                    "bias": 0.0,
+                    "eval_f1": 0.9,  # no cv_ece
+                },
+            }
+        )
+        mock_clf_results = [
+            {"name": "retrieval_failure", "confidence": 0.9, "evidence": "clf prob=0.9"}
+        ]
+
+        with (
+            patch("agent_diagnostics.ensemble.heuristic_annotate", return_value=[]),
+            patch("agent_diagnostics.ensemble.predict_trial", return_value=mock_clf_results),
+        ):
+            result = ensemble_annotate(_make_signals(), model, classifier_max_ece=0.2)
+
+        assert result == []
+
+    def test_cv_ece_included_in_evidence(self) -> None:
+        model = _make_model(
+            classifiers={
+                "retrieval_failure": {
+                    "weights": [0.0] * 21,
+                    "bias": 0.0,
+                    "eval_f1": 0.8,
+                    "cv_ece": 0.05,
+                },
+            }
+        )
+        mock_clf_results = [
+            {"name": "retrieval_failure", "confidence": 0.85, "evidence": "clf prob=0.850"}
+        ]
+
+        with (
+            patch("agent_diagnostics.ensemble.heuristic_annotate", return_value=[]),
+            patch("agent_diagnostics.ensemble.predict_trial", return_value=mock_clf_results),
+        ):
+            result = ensemble_annotate(_make_signals(), model)
+
+        evidence = result[0]["evidence"]
+        assert "[eval_f1=0.80]" in evidence
+        assert "[cv_ece=0.05]" in evidence
+
+
+class TestTrustedClassifierCategories:
+    def test_partitions_trusted_and_unvalidated(self) -> None:
+        from agent_diagnostics.ensemble import trusted_classifier_categories
+
+        model = {
+            "classifiers": {
+                "good": {"eval_f1": 0.9, "cv_ece": 0.05},
+                "weak": {"eval_f1": 0.4, "cv_ece": 0.05},
+                "legacy": {"train_accuracy": 0.99},
+                "no_cv": {"cv_status": "insufficient_data"},
+            }
+        }
+        trusted, unvalidated = trusted_classifier_categories(model, classifier_min_f1=0.7)
+
+        assert trusted == {"good"}
+        assert unvalidated == {"legacy", "no_cv"}
+
+    def test_ece_gate_filters_trusted(self) -> None:
+        from agent_diagnostics.ensemble import trusted_classifier_categories
+
+        model = {
+            "classifiers": {
+                "calibrated": {"eval_f1": 0.9, "cv_ece": 0.05},
+                "miscalibrated": {"eval_f1": 0.9, "cv_ece": 0.4},
+            }
+        }
+        trusted, _ = trusted_classifier_categories(
+            model, classifier_min_f1=0.7, classifier_max_ece=0.2
+        )
+
+        assert trusted == {"calibrated"}
+
+
+class TestEnsembleAllWarnsOnUnvalidated:
+    def test_warning_logged_for_legacy_categories(self, caplog) -> None:
+        import logging
+
+        model = _make_model(
+            classifiers={
+                "retrieval_failure": {
+                    "weights": [0.0] * 21,
+                    "bias": 0.0,
+                    "train_accuracy": 0.99,
+                },
+            }
+        )
+        with caplog.at_level(logging.WARNING, logger="agent_diagnostics.ensemble"):
+            ensemble_all([], model)
+
+        assert any("no held-out eval_f1" in r.message for r in caplog.records)
+        assert any("retrieval_failure" in r.message for r in caplog.records)

@@ -641,6 +641,7 @@ class TestCmdTrain:
             min_positive=3,
             lr=0.1,
             epochs=300,
+            cv_folds=5,
         )
         mock_save.assert_called_once()
 
