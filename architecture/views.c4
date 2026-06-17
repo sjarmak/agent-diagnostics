@@ -1,0 +1,164 @@
+// Views over the agent-diagnostics model. Evolving (#evolving) work renders
+// amber, the planning/research lens dims everything but the in-focus elements,
+// and the #risk view surfaces the open questions a reviewer should probe.
+
+views {
+
+  // Landscape — the whole system in context.
+  view index {
+    title 'Agent Diagnostics — system landscape'
+    include *
+
+    style * {
+      opacity 25%
+    }
+    style element.tag == #built, element.tag == #evolving {
+      opacity 100%
+    }
+    style element.tag == #evolving {
+      color amber
+    }
+  }
+
+  // The observatory system, decomposed into its containers.
+  view observatorySystem of observatory {
+    title 'Agent Diagnostics — containers'
+    include *
+
+    style element.tag == #evolving {
+      color amber
+    }
+  }
+
+  // The core package — the analysis engine internals.
+  view coreContainer of observatory.core {
+    title 'Core package (src/agent_diagnostics) — components'
+    include *
+
+    style element.tag == #evolving {
+      color amber
+    }
+  }
+
+  // The LLM annotator and its three interchangeable backends.
+  view llmView of observatory.core.llm {
+    title 'LLM annotator — backends, prompt & cache'
+    include *
+  }
+
+  // The signal extractor internals.
+  view signalsView of observatory.core.signals {
+    title 'Signal extraction — registry & cache'
+    include *
+  }
+
+  // The golden-corpus / docs scripts.
+  view scriptsView of observatory.scripts {
+    title 'Golden-corpus & docs scripts'
+    include *
+
+    style element.tag == #evolving {
+      color amber
+    }
+  }
+
+  // Risks & open questions — the elements that carry a #risk flag, with the
+  // open question stated in each box's description. The things a reviewer
+  // should probe, surfaced rather than discovered mid-meeting.
+  view risks {
+    title 'Risks & open questions'
+    include
+      observatory,
+      element.tag == #risk,
+      observatory.core,
+      observatory.core.llm
+
+    style * {
+      opacity 30%
+    }
+    style element.tag == #risk {
+      opacity 100%
+      color red
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Walkthrough flows (dynamic views) — the narrative spine of the review.
+  // ───────────────────────────────────────────────────────────────────────
+
+  // Flow 1 — ingest: raw trial dirs → signals.
+  dynamic view ingestFlow {
+    title 'Walkthrough — ingest (trials → signals)'
+    description 'Point the tool at a directory of trial dirs. The extractor reads result.json + trajectory.json per trial, classifies tool calls via the per-agent registry, and writes one 31-field row per trial; the content-hash cache skips trials whose bytes are unchanged.'
+
+    researcher -> observatory.cli 'agent-diagnostics ingest --runs-dir ...'
+    observatory.cli -> observatory.core.signals 'extract_all'
+    observatory.core.signals.extractCache -> observatory.trialCorpus 'content-hash: read / skip unchanged'
+    observatory.core.signals.toolRegistry -> observatory.signalsStore 'bucket tool calls'
+    observatory.core.signals -> observatory.signalsStore 'write 31-field signals.jsonl'
+  }
+
+  // Flow 2 — the label pipeline: heuristic + LLM → blend → train → ensemble.
+  dynamic view labelFlow {
+    title 'Walkthrough — the label pipeline'
+    description 'Heuristic rules label the whole corpus instantly; the LLM labels a sample from the real trajectories. blend merges them (heuristic-only share capped) into a training set; train cross-validates per category and stores held-out F1; ensemble trusts deterministic tier-1 rules plus tier-2 classifier categories that clear the F1 (and optional ECE) gate.'
+
+    observatory.core.heuristic -> observatory.signalsStore 'corpus-scale rules'
+    observatory.core.llm -> observatory.trialCorpus 'sample: read trajectories'
+    observatory.core.llm.backendBatch -> anthropic.batchesApi 'submit + poll (preferred)'
+    observatory.core.blend -> observatory.annotationsStore 'merge heuristic + LLM (cap heuristic-only)'
+    observatory.core.classifier -> observatory.annotationsStore 'train: CV per category → eval_f1 / cv_ece'
+    observatory.core.ensemble -> observatory.core.classifier 'tier-2: F1/ECE-gated categories'
+    observatory.core.ensemble -> observatory.core.heuristic 'tier-1: deterministic categories'
+    observatory.core.ensemble -> observatory.core.store 'write ensemble labels'
+  }
+
+  // Flow 3 — LLM annotation of one trial (leak guard + cache).
+  dynamic view llmAnnotateFlow {
+    title 'Walkthrough — LLM annotation of one trial'
+    description 'The prompt builder strips outcome-bearing signal fields (reward / passed / exception) so the model cannot read the answer, then truncates the trajectory head+tail. The annotation cache is keyed on sha256(prompt + model id), so a re-run with the same prompt and model is free; errors are never cached and re-run.'
+
+    observatory.cli -> observatory.core.llm.prompt 'llm-annotate --backend batch: build prompt'
+    observatory.core.llm.prompt -> observatory.exemplars 'few-shot category examples'
+    observatory.core.llm.prompt -> observatory.core.llm.annotationCache 'cache hit? (prompt+model hash)'
+    observatory.core.llm.annotationCache -> observatory.core.llm.llmDispatch 'on miss: dispatch to backend'
+    observatory.core.llm.llmDispatch -> observatory.core.llm.backendBatch 'submit batch'
+    observatory.core.llm.backendBatch -> anthropic.batchesApi 'classify; poll until complete'
+    observatory.core.llm.backendBatch -> observatory.core.modelIdentity 'stamp annotator_identity'
+    observatory.core.modelIdentity -> observatory.annotationsStore 'write labels (v2, with confidence)'
+  }
+
+  // Flow 4 — serve: query the shipped dataset / generate a report.
+  dynamic view serveFlow {
+    title 'Walkthrough — query & export the dataset'
+    description 'A fresh clone can query immediately: the query engine prefers data/export/*.parquet over the JSONL working set. export rewrites Parquet deterministically (fixed created_by, native list columns) and writes a MANIFEST with schema version, row counts, sha256, and source commit.'
+
+    researcher -> observatory.cli 'agent-diagnostics query "SELECT ..."'
+    observatory.cli -> observatory.core.query 'run_query (DuckDB)'
+    observatory.core.query -> observatory.shippedDataset 'SQL over signals.parquet'
+    observatory.cli -> observatory.core.report 'report --annotations ...'
+    observatory.core.report -> observatory.annotationsStore 'aggregate + compare + co-occurrence'
+    observatory.cli -> observatory.core.export 'export --format parquet'
+    observatory.core.export -> observatory.shippedDataset 'write Parquet + MANIFEST.json'
+  }
+
+  // Evolving lens: the contracts still moving, with their dependents dimmed.
+  view evolving {
+    title 'Evolving contracts'
+    include
+      observatory,
+      observatory.core,
+      element.tag == #evolving,
+      observatory.core.heuristic,
+      observatory.core.llm,
+      observatory.annotationsStore
+
+    style * {
+      opacity 30%
+    }
+    style element.tag == #evolving {
+      opacity 100%
+      color amber
+    }
+  }
+}

@@ -1,0 +1,350 @@
+// Agent Diagnostics — the Agent Reliability Observatory.
+//
+// A behavioral taxonomy, annotation framework, and shareable dataset backend
+// for analyzing why coding agents pass or fail benchmark tasks. The system
+// takes raw per-trial harness output, extracts structured signals, classifies
+// failure / success modes (heuristic + LLM + trained classifier), and serves a
+// queryable, exportable dataset (11,995 trials shipped).
+//
+// One Python package (src/agent_diagnostics) with a thin CLI, a set of standalone
+// scripts, and the data corpora it reads and produces. Delivery state is tagged
+// (see spec.c4): the pipeline is built and tested end-to-end; a handful of
+// contracts are still evolving and are flagged as such, with open questions on
+// the #risk elements.
+//
+// Elements carry `link`s to their source so a reviewer can jump from any box to
+// the code behind it.
+
+model {
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Actors.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  producer = actor 'Trace producer' {
+    description 'Runs coding-agent benchmarks; their per-trial result.json / trajectory.json are the raw input'
+  }
+
+  researcher = actor 'Reliability analyst' {
+    description 'Queries the dataset, reads reports, and labels their own traces via the CLI'
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // External systems — the trace source and the inference / outcome services.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  harness = externalSystem 'Benchmark harnesses' {
+    description 'SWE-bench / OpenHands and similar — write a result.json (+ optional trajectory.json) per trial directory'
+  }
+
+  anthropic = externalSystem 'Anthropic' {
+    description 'LLM inference for annotation. Reached three ways: Claude Code CLI (local auth), Messages API, and the Message Batches API'
+
+    batchesApi = externalSystem 'Message Batches API' {
+      description '50% cheaper, no per-minute rate limits — the preferred path beyond a handful of trials'
+    }
+  }
+
+  github = externalSystem 'GitHub' {
+    description 'Public repo sjarmak/agent-diagnostics — distribution of the package and the shipped dataset'
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // The observatory system.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  observatory = system 'Agent Diagnostics' {
+    description 'Turns raw agent-trial output into a labeled, queryable reliability dataset (11,995 trials, 40 categories / 11 dimensions)'
+    link ../README.md 'README'
+    link ../CLAUDE.md 'Repo conventions'
+
+    // ── CLI surface ────────────────────────────────────────────────────────
+    cli = container 'observatory CLI' {
+      #built
+      description 'argparse front end (`agent-diagnostics` / `observatory`); one module per command group, dispatches into the core package'
+      technology 'Python / argparse'
+      link ../src/agent_diagnostics/cli 'cli/'
+      link ../src/agent_diagnostics/cli/main.py 'main.py — parser + dispatch'
+    }
+
+    // ── Core package — the analysis engine ───────────────────────────────────
+    core = container 'agent_diagnostics core package' {
+      description 'src/agent_diagnostics — the extraction / annotation / training / serving engine behind the CLI'
+      technology 'Python 3.10+'
+      link ../src/agent_diagnostics 'src/agent_diagnostics/'
+
+      taxonomy = component 'taxonomy' {
+        #evolving
+        description 'Loads + validates the behavioral taxonomy; the shared category vocabulary every annotator targets. v3 active (40 categories / 11 dimensions); v1/v2 kept for back-compat — the science is still being refined'
+        link ../src/agent_diagnostics/taxonomy.py 'taxonomy.py'
+        link ../src/agent_diagnostics/taxonomy_v3.yaml 'taxonomy_v3.yaml'
+        link ../src/agent_diagnostics/taxonomy_v1.yaml 'taxonomy_v1.yaml (legacy)'
+        link ../src/agent_diagnostics/taxonomy_v2.yaml 'taxonomy_v2.yaml (legacy)'
+      }
+
+      signals = component 'signals extractor' {
+        #built
+        description 'Reads each trial dir (result.json + trajectory.json) into a 31-field TrialSignals row; classifies tool calls via the tool registry'
+        link ../src/agent_diagnostics/signals.py 'signals.py'
+
+        toolRegistry = component 'tool registry' {
+          #built
+          description 'Maps tool names to capability buckets (search / edit / code-nav / semantic) per agent (claude-code, openhands)'
+          link ../src/agent_diagnostics/tool_registry.py 'tool_registry.py'
+        }
+        extractCache = component 'extraction cache' {
+          #built
+          description 'Content-hash cache (sha256 of result+trajectory bytes) so warm re-extractions skip unchanged trials — path/mtime independent'
+          link ../src/agent_diagnostics/extract_cache.py 'extract_cache.py'
+        }
+      }
+
+      heuristic = component 'heuristic annotator' {
+        #built
+        description '23 deterministic rules that fire taxonomy categories on signal patterns (e.g. retrieval_failure when search=0 and files-read=0) — instant, corpus-scale'
+        link ../src/agent_diagnostics/annotator.py 'annotator.py'
+      }
+
+      llm = component 'LLM annotator' {
+        #built
+        description 'Reads actual trajectories and classifies with Claude. Three interchangeable backends behind one dispatch interface; signals redacted before the prompt to prevent label leakage'
+        link ../src/agent_diagnostics/llm_annotator 'llm_annotator/'
+
+        llmDispatch = component 'backend dispatch' {
+          #built
+          description 'Routes a trial / batch to the chosen backend; uniform AnnotationResult (ok / no-categories / error) out'
+          link ../src/agent_diagnostics/llm_annotator/dispatch.py 'dispatch.py'
+        }
+        backendClaudeCode = component 'claude-code backend' {
+          #built
+          description 'Default. Spawns the local `claude` CLI with a JSON schema — no API key needed; for small interactive samples'
+          link ../src/agent_diagnostics/llm_annotator/claude_code.py 'claude_code.py'
+        }
+        backendApi = component 'api backend' {
+          #built
+          description 'Anthropic Python SDK (sync + async), tool-use structured output; requires ANTHROPIC_API_KEY'
+          link ../src/agent_diagnostics/llm_annotator/api_backend.py 'api_backend.py'
+        }
+        backendBatch = component 'batch backend' {
+          #built
+          description 'Message Batches API: submit-and-poll; the recommended path for any non-trivial sample'
+          link ../src/agent_diagnostics/llm_annotator/batch.py 'batch.py'
+        }
+        prompt = component 'prompt + redaction' {
+          #built
+          #risk
+          description 'Builds the annotation prompt, truncates the trajectory (head+tail), and strips reward/passed/exception fields. RISK: leak-prevention is a fixed redaction set — a new outcome-bearing signal field must be added to REDACTED_SIGNAL_FIELDS or it silently leaks the label into the prompt'
+          link ../src/agent_diagnostics/llm_annotator/prompt.py 'prompt.py'
+          link ../src/agent_diagnostics/constants.py 'constants.py — REDACTED_SIGNAL_FIELDS'
+        }
+        annotationCache = component 'annotation cache' {
+          #built
+          description 'Content-hash cache keyed on sha256(prompt + model id); errors are never cached so they re-run'
+          link ../src/agent_diagnostics/annotation_cache.py 'annotation_cache.py'
+        }
+      }
+
+      classifier = component 'classifier (train / predict)' {
+        #built
+        description 'Per-category logistic regression on 21 numeric signal features; stratified k-fold CV stores held-out eval_f1 + cv_ece in the model artifact'
+        link ../src/agent_diagnostics/classifier.py 'classifier.py'
+      }
+
+      blend = component 'label blender' {
+        #evolving
+        description 'Merges corpus-scale heuristic labels with the sampled LLM labels into a training set; caps heuristic-only share and reports dropped trials. Trust policy (which heuristic categories to keep) still being tuned'
+        link ../src/agent_diagnostics/blend_labels.py 'blend_labels.py'
+      }
+
+      ensemble = component 'two-tier ensemble' {
+        #built
+        description 'Tier 1 deterministic heuristics (crash / rate-limit / edit-verify) + Tier 2 classifier categories that clear the held-out F1 (and optional ECE) gate'
+        link ../src/agent_diagnostics/ensemble.py 'ensemble.py'
+      }
+
+      calibrate = component 'calibration metrics' {
+        #evolving
+        #risk
+        description 'ECE / Brier / reliability diagram of a predictor vs a reference or golden corpus. RISK: legacy v1 annotation files have no per-category confidence and default to 1.0 on read, making every category look maximally overconfident — only meaningful on v2+ predictors'
+        link ../src/agent_diagnostics/calibrate.py 'calibrate.py'
+      }
+
+      agreement = component 'inter-annotator agreement' {
+        #built
+        description "Pairwise Cohen's kappa per category over the trials two annotators share, read from the narrow-tall store"
+        link ../src/agent_diagnostics/agreement.py 'agreement.py'
+      }
+
+      store = component 'annotation store' {
+        #built
+        #risk
+        description 'Narrow-tall JSONL writer; PK (trial_id, category, annotator_type, annotator_identity, taxonomy_version), atomic temp+rename writes. RISK: concurrent-writer safety relies on fcntl.flock — Unix-only; on Windows multi-writer use is unguarded'
+        link ../src/agent_diagnostics/annotation_store.py 'annotation_store.py'
+      }
+
+      report = component 'report generator' {
+        #built
+        description 'Composes corpus aggregation, comparative (per-agent / per-benchmark / matrix), and co-occurrence into a Markdown + JSON reliability report'
+        link ../src/agent_diagnostics/report 'report/'
+        link ../src/agent_diagnostics/report/orchestration.py 'orchestration.py'
+      }
+
+      query = component 'SQL query engine' {
+        #built
+        description 'DuckDB over signals / annotations / manifests; auto-registers Parquet (preferred) or JSONL; table / json / jsonl / csv output'
+        link ../src/agent_diagnostics/query.py 'query.py'
+      }
+
+      export = component 'Parquet exporter' {
+        #built
+        description 'Deterministic JSONL→Parquet (zstd, native list columns) + MANIFEST.json with schema version, row counts, sha256, source commit'
+        link ../src/agent_diagnostics/export.py 'export.py'
+      }
+
+      pipeline = component 'pipeline DAG runner' {
+        #built
+        description 'Reads pipeline.toml, runs only stale stages (content-hash staleness, mtimes ignored), aborts downstream on failure'
+        link ../src/agent_diagnostics/pipeline.py 'pipeline.py'
+      }
+
+      modelIdentity = component 'model identity' {
+        #built
+        description 'Resolves logical annotator identities (llm:haiku-4) ↔ Anthropic snapshot ids, backed by models.yaml; keeps annotations join-stable across model snapshots'
+        link ../src/agent_diagnostics/model_identity.py 'model_identity.py'
+        link ../src/agent_diagnostics/models.yaml 'models.yaml'
+      }
+    }
+
+    // ── Standalone scripts — golden-corpus + docs tooling ────────────────────
+    scripts = container 'golden-corpus & docs scripts' {
+      #built
+      description 'Out-of-CI tooling: build / curate the committed golden regression corpus, and regenerate the schema docs from the authoritative code'
+      technology 'Python (scripts/)'
+      link ../scripts 'scripts/'
+
+      buildGolden = component 'build_golden_corpus' {
+        #built
+        description 'Stratified selection from the shipped Parquet → per-trial fixtures (signals, trajectory, expected_annotations seed)'
+        link ../scripts/build_golden_corpus.py 'build_golden_corpus.py'
+      }
+      curateGolden = component 'curate_golden_corpus' {
+        #evolving
+        description 'Two independent evidence-based passes (curator + reviewer) over trajectories to set expected labels, each citing the taxonomy detection hints it matched'
+        link ../scripts/curate_golden_corpus.py 'curate_golden_corpus.py'
+      }
+      genSchemaDocs = component 'gen_schema_docs' {
+        #built
+        description 'Single source of truth for docs/schemas/*.md — generated from TrialSignals / store row fields; a test diffs against the checked-in files'
+        link ../scripts/gen_schema_docs.py 'gen_schema_docs.py'
+      }
+    }
+
+    // ── Data corpora — the inputs, the working set, and the shipped artifact ──
+    trialCorpus = datastore 'Trial corpus (run dirs)' {
+      #built
+      description 'Per-trial directories of raw harness output (result.json + optional trajectory.json). The local working set lives under data/eb_converted (331 trial dirs)'
+      link ../data/eb_converted 'data/eb_converted/'
+    }
+
+    signalsStore = datastore 'signals.jsonl (+ caches)' {
+      #built
+      description 'Extracted signals, one 31-field row per trial — the join spine (stable trial_id). The pipeline working data under data/'
+      link ../data/signals.jsonl 'data/signals.jsonl'
+    }
+
+    annotationsStore = datastore 'annotations / labels' {
+      #built
+      description 'Heuristic / LLM / blended / ensemble label sets (narrow-tall JSONL + per-stage JSON under data/labels)'
+      link ../data/annotations.jsonl 'data/annotations.jsonl'
+      link ../data/labels 'data/labels/'
+    }
+
+    shippedDataset = datastore 'Shipped dataset (Parquet)' {
+      #built
+      #risk
+      description 'data/export — the public artifact: signals.parquet (11,995 trials, ~1.5 MB) + MANIFEST.json. RISK: only signals ships; the MANIFEST records annotations=0 / manifests=0 rows, so query/annotation tables are empty on a fresh clone until the user runs the pipeline'
+      link ../data/export 'data/export/'
+      link ../data/export/MANIFEST.json 'MANIFEST.json'
+    }
+
+    exemplars = datastore 'category exemplars' {
+      #built
+      description '25 hand-built example trials, one per representative taxonomy category — fixtures for prompts and tests'
+      link ../src/agent_diagnostics/exemplars 'exemplars/'
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Relationships.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Actors → system
+  producer -> harness 'runs benchmark trials'
+  harness -> observatory.trialCorpus 'writes result.json / trajectory.json per trial'
+  researcher -> observatory.cli 'ingest / label / query / export own traces'
+
+  // CLI → core (the front end dispatches into the engine)
+  observatory.cli -> observatory.core 'dispatches subcommands'
+
+  // Extraction (IO → signals). The extractor reads the corpus through its
+  // cache and registry (children), then writes the signals store.
+  observatory.core.signals.extractCache -> observatory.trialCorpus 'reads result.json + trajectory.json (skip unchanged)'
+  observatory.core.signals.toolRegistry -> observatory.signalsStore 'classify tool calls into buckets'
+  observatory.core.signals -> observatory.signalsStore 'writes 31-field rows'
+
+  // Heuristic annotation
+  observatory.core.heuristic -> observatory.signalsStore 'reads signals'
+  observatory.core.heuristic -> observatory.core.taxonomy 'targets valid categories'
+  observatory.core.heuristic -> observatory.annotationsStore 'writes heuristic labels'
+
+  // LLM annotation
+  observatory.core.llm.llmDispatch -> observatory.core.llm.backendClaudeCode 'default'
+  observatory.core.llm.llmDispatch -> observatory.core.llm.backendApi 'api'
+  observatory.core.llm.llmDispatch -> observatory.core.llm.backendBatch 'batch'
+  observatory.core.llm.prompt -> observatory.exemplars 'few-shot category examples'
+  observatory.core.llm.prompt -> observatory.trialCorpus 'reads + truncates trajectory turns'
+  observatory.core.llm.annotationCache -> observatory.annotationsStore 'reuse prior results'
+  observatory.core.llm.backendClaudeCode -> anthropic 'claude CLI (local auth)'
+  observatory.core.llm.backendApi -> anthropic 'Messages API'
+  observatory.core.llm.backendBatch -> anthropic.batchesApi 'submit + poll'
+  observatory.core.llm -> observatory.core.modelIdentity 'resolve annotator identity'
+  observatory.core.llm -> observatory.annotationsStore 'writes LLM labels'
+
+  // Train / blend / ensemble
+  observatory.core.blend -> observatory.annotationsStore 'merges heuristic + LLM labels'
+  observatory.core.classifier -> observatory.annotationsStore 'reads blended labels'
+  observatory.core.classifier -> observatory.signalsStore 'reads features'
+  observatory.core.ensemble -> observatory.core.classifier 'tier-2 gated categories'
+  observatory.core.ensemble -> observatory.core.heuristic 'tier-1 deterministic categories'
+  observatory.core.ensemble -> observatory.annotationsStore 'writes ensemble labels'
+
+  // Evaluation
+  observatory.core.calibrate -> observatory.annotationsStore 'predictor vs reference / golden'
+  observatory.core.agreement -> observatory.annotationsStore 'kappa over shared trials'
+
+  // Store-level write enforcement
+  observatory.core.heuristic -> observatory.core.store 'narrow-tall rows'
+  observatory.core.llm -> observatory.core.store 'narrow-tall rows'
+  observatory.core.ensemble -> observatory.core.store 'narrow-tall rows'
+
+  // Serving
+  observatory.core.report -> observatory.annotationsStore 'reads labels → Markdown + JSON'
+  observatory.core.query -> observatory.shippedDataset 'SQL over Parquet (preferred)'
+  observatory.core.query -> observatory.signalsStore 'SQL over JSONL (fallback)'
+  observatory.core.export -> observatory.signalsStore 'reads JSONL'
+  observatory.core.export -> observatory.shippedDataset 'writes Parquet + MANIFEST'
+  observatory.core.export -> github 'source commit recorded in MANIFEST'
+
+  // Orchestration
+  observatory.core.pipeline -> observatory.core.signals 'stage: extract'
+  observatory.core.pipeline -> observatory.core.heuristic 'stage: annotate'
+  observatory.core.pipeline -> observatory.core.report 'stage: report'
+
+  // Scripts
+  observatory.scripts.buildGolden -> observatory.shippedDataset 'stratified selection from Parquet'
+  observatory.scripts.curateGolden -> observatory.core.taxonomy 'cite detection hints'
+
+  // Consumer reads
+  researcher -> observatory.shippedDataset 'queries shipped Parquet directly'
+  researcher -> github 'pip install / clone'
+}

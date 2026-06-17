@@ -1,0 +1,56 @@
+// Deployment model — where each piece runs at review time.
+//
+// Agent Diagnostics is a single local Python toolchain: the CLI + core package
+// run in one process, reading and writing flat files on the developer / CI host.
+// The only off-host calls are LLM inference (during `llm-annotate`) and the
+// GitHub distribution boundary. This is the "what runs where / where's the
+// process & data boundary" view a design review always asks for.
+
+deployment {
+
+  devHost = host 'Developer / CI host' {
+    description 'Local toolchain — runs the whole pipeline and serves queries; no server process'
+
+    pyProc = proc 'Python runtime — observatory CLI + core' {
+      instanceOf observatory.cli
+      instanceOf observatory.core
+    }
+    scriptsProc = proc 'Python runtime — golden-corpus / docs scripts' {
+      instanceOf observatory.scripts
+    }
+    dataDir = proc 'data/ — corpus, signals, labels, Parquet export' {
+      description 'Flat-file working set: trial dirs, signals.jsonl, label sets, and the shipped data/export Parquet + MANIFEST'
+    }
+  }
+
+  inferenceHost = host 'Anthropic (LLM inference)' {
+    description 'Off-host LLM calls during llm-annotate — Claude CLI / Messages API / Message Batches API'
+    instanceOf anthropic
+    instanceOf anthropic.batchesApi
+  }
+
+  harnessHost = host 'Benchmark harness hosts' {
+    description 'Produce the raw trial output that seeds the corpus — read-only to the observatory'
+    instanceOf harness
+  }
+
+  distHost = host 'GitHub / PyPI' {
+    description 'Distribution boundary — the public repo and the shipped dataset'
+    instanceOf github
+  }
+
+  // Runtime data & control flow between processes/hosts.
+  pyProc -> dataDir 'reads trials; writes signals / labels / Parquet'
+  pyProc -> inferenceHost 'llm-annotate: classify trajectories'
+  pyProc -> harnessHost 'reads trial dirs (when ingesting fresh runs)'
+  scriptsProc -> dataDir 'builds golden corpus from the Parquet export'
+  pyProc -> distHost 'source commit recorded in MANIFEST'
+}
+
+views {
+
+  deployment view deployment {
+    title 'Deployment — where each piece runs'
+    include *
+  }
+}
